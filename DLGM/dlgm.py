@@ -49,7 +49,10 @@ class GenerativeModel:
     me.lhood = me.lhoodFunc(me.v, me.h[0])
     
     # define utils.
-    me.sample = theano.function(me.xi[1:], me.h)
+    me.generate = theano.function(me.xi[1:], me.h)
+    me.hidden_activation = ts.vector("hidden_activiation")
+    me.hidden_rectified = me.f(0, me.hidden_activation)
+    me.nonlinear = theano.function([me.hidden_activation], me.hidden_rectified)
  
 
 class RecognitionModel:
@@ -97,10 +100,15 @@ class RecognitionModel:
     me.get_d = theano.function([me.v], me.d[1:])
     me.get_z = theano.function([me.v], me.z[1:])
 
+
+    # utils.
+
     me.sample = lambda v: [npr.multivariate_normal(mu, np.diag(d) + np.matrix(u).T * np.matrix(u)) \
                             for (mu, u, d) in zip(me.get_mu(v), me.get_u(v), me.get_d(v))]
 
-    
+    me.hidden_activation = ts.vector("hidden_activiation")
+    me.hidden_rectified = me.f(0, me.hidden_activation)
+    me.nonlinear = theano.function([me.hidden_activation], me.hidden_rectified)
 
       
 
