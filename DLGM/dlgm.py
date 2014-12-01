@@ -4,27 +4,36 @@ including
 * generative model.
 * recognition model.
 """
-# let client and server have the same imports.
+"let client and server have the same imports."
 imports = ['import numpy as np', 
            'import numpy.random as npr', 
            'import theano',
-           'import theano.tensor as ts']
+           'import theano.sandbox.linalg as ta',
+           'import theano.tensor as ts',
+           'from color import *',
+           'from utils import *']
 for _import in imports:
   exec _import
 
 from IPython.parallel import Client
 
-theano.config.exception_verbosity = 'high'
+theano.config.exception_verbosity = 'low'
 
 ts.logistic = lambda z: 1 / (1 + ts.exp(-z)) 
+get_value = lambda x: x.get_value() if x != None else None
+get_value_all = lambda xs: [get_value(x) for x in xs]
 
-def param_add(param, grad):
-  for i in range(len(param)):
-    param[i] += grad[i]
-
-def param_mul_scalar(param, scalar):
-  for i in range(len(param)):
-    param[i] *= scalar
+def AdaGRAD(param, grad, G2):
+  """
+  adaptive sub-gradient algorithm for tensor-shared objects.
+  > input:
+    param: parameters, tensor-shared objects. 
+    grad: gradient, list of numpy arrays.
+    G2: variance of gradient, list of numpy arrays
+  """
+  for (p, g, g2) in zip(param, grad, G2):
+    g2[:] = (g2 + g * g)[:]
+    p.set_value(p.get_value() + g / (1e-4 + np.sqrt(g2))) 
 
 class GenerativeModel:
   """ generative model 
@@ -34,16 +43,16 @@ class GenerativeModel:
       create the deep latent Gaussian model.
         arch: architecture, [vis, hidden_1, hidden_2, ...]
     """
-    # set options.
+    "set options."
     me.f = ts.maximum         # nonlinear transformation.
     me.lhoodFunc = lambda v, resp: (v * ts.log(ts.logistic(resp)) + (1-v) * ts.log(1-ts.logistic(resp))).sum()
 
-    # set properties.
+    "set properties."
     me.arch = arch
     me.num_layers = len(arch)
     assert(me.num_layers > 1)
 
-    # init layers.
+    "init layers."
     (me.G, me.W, me.b, me.xi, me.h) = tuple([[None]*(me.num_layers) for i in range(5)])
     for layer in range(me.num_layers-1, -1, -1):
       if layer < me.num_layers-1:
@@ -57,32 +66,36 @@ class GenerativeModel:
       if layer < me.num_layers-1:
         me.h[layer] += ts.dot(me.W[layer], me.f(0, me.h[layer+1])) + me.b[layer]
 
-    # define objective.
+    me.param = me.G[1:] + me.W[:-1] + me.b[:-1]
+    me.G2 = [np.zeros(x.get_value().shape) for x in me.param] # variance of gradient.
+
+    "define objective."
     me.v = ts.vector("v")
     me.lhood = me.lhoodFunc(me.v, me.h[0])
     me.get_lhood = theano.function([me.v] + me.xi[1:], me.lhood) 
+    me.reg = sum([ts.sum(p * p) for p in me.param])
+    me.get_reg = theano.function([], me.reg)
 
-    # define gradient.
-    me.gradient = ts.grad(me.lhood, me.G[1:] + me.W[:-1] + me.b[:-1])
+    "define gradient."
+    me.gradient = ts.grad(me.lhood, me.param)
+    me.gradient_xi = ts.grad(me.lhood, me.xi[1:])
+    me.hessian_xi = ts.hessian(me.lhood, me.xi[1:])
     me.get_grad = theano.function([me.v] + me.xi[1:], me.gradient)
+    me.get_grad_xi = theano.function([me.v] + me.xi[1:], me.gradient_xi)
+    me.get_hess_xi = theano.function([me.v] + me.xi[1:], me.hessian_xi)
+    me.gradient_reg = ts.grad(me.reg, me.param)
+    me.get_grad_reg = theano.function([], me.gradient_reg)
 
-    # define utils.
+    "define utils."
     me.generate = theano.function(me.xi[1:], me.h)
     me.hidden_activation = ts.vector("hidden_activiation")
     me.hidden_rectified = me.f(0, me.hidden_activation)
     me.nonlinear = theano.function([me.hidden_activation], me.hidden_rectified)
 
   def pack(me):
-    return [x.get_value() for x in [me.G, me.W, me.b]]
-  
-  def unpack(me, param):
-    me.G.set_value(param[0])
-    me.W.set_value(param[1])
-    me.b.set_value(param[2])
-
-  def zero(me):
-    return [0] * 3
-    
+    return {'G': get_value_all(me.G), \
+            'W': get_value_all(me.W),
+            'b': get_value_all(me.b)}
  
 class RecognitionModel:
   """ recognition model (interface)
@@ -97,19 +110,19 @@ class RecognitionModel:
       create the deep latent Gaussian recognition model.
         arch: architecture, [vis, hidden_1, hidden_2, ...]
     """
-    # set options.
+    "set options."
     me.f = ts.maximum         # nonlinear transformation.
 
-    # set properties.
+    "set properties."
     me.arch = arch
     me.num_layers = len(arch)
     me.num_hidden = num_hidden
     assert(me.num_layers > 1)
 
-    # init layers.
+    "init layers."
     me.v = ts.vector("v")
-    (me.Wv, me.Wu, me.Wd, me.Wmu, me.bv, me.bu, me.bd, me.bmu, me.z, me.d, me.u, me.mu) \
-        = tuple([[None] * me.num_layers for i in range(12)])
+    (me.Wv, me.Wu, me.Wd, me.Wmu, me.bv, me.bu, me.bd, me.bmu, me.z, me.d, me.u, me.mu, me.C) \
+        = tuple([[None] * me.num_layers for i in range(13)])
     for layer in range(1, me.num_layers):
       me.Wv[layer] = theano.shared(npr.randn(num_hidden, arch[0]), name="Wv%d" % layer)
       me.Wu[layer] = theano.shared(npr.randn(arch[layer], num_hidden), name="Wu%d" % layer)
@@ -123,6 +136,7 @@ class RecognitionModel:
       me.mu[layer] = ts.dot(me.Wmu[layer], me.z[layer]) + me.bmu[layer]
       me.d[layer] = ts.exp(ts.dot(me.Wd[layer], me.z[layer]) + me.bd[layer])
       me.u[layer] = ts.dot(me.Wu[layer], me.z[layer]) + me.bu[layer]
+      me.C[layer] = ts.diag(me.d[layer]) + ts.dot(me.u[layer], me.u[layer].T) 
 
     me.get_mu = theano.function([me.v], me.mu[1:])
     me.get_u = theano.function([me.v], me.u[1:])
@@ -130,7 +144,7 @@ class RecognitionModel:
     me.get_z = theano.function([me.v], me.z[1:])
 
 
-    # utils.
+    "utils."
     me.sample = lambda v: [npr.multivariate_normal(mu, np.diag(d) + np.matrix(u).T * np.matrix(u)) \
                             for (mu, u, d) in zip(me.get_mu(v), me.get_u(v), me.get_d(v))]
 
@@ -138,29 +152,51 @@ class RecognitionModel:
     me.hidden_rectified = me.f(0, me.hidden_activation)
     me.nonlinear = theano.function([me.hidden_activation], me.hidden_rectified)
 
-  def pack(me):
-    return [x.get_value() for x in [me.Wv, me.Wu, me.Wd, me.Wmu, me.bv, me.bu, me.bd, me.bmu]]
-  
-  def unpack(me, param):
-    me.Wv.set_value(param[0])
-    me.Wu.set_value(param[1])
-    me.Wd.set_value(parma[2])
-    me.Wmu.set_value(param[3])
-    me.bv.set_value(param[4])
-    me.bu.set_value(param[5])
-    me.bd.set_value(param[6])
-    me.bmu.set_value(param[7])
+    "free energy."
+    me.energy = 0;
+    for layer in range(1, me.num_layers):
+      me.energy += ts.dot(me.mu[layer].T, me.mu[layer]) + ts.sum(me.d[layer]) + ts.dot(me.u[layer].T, me.u[layer]) \
+          - ts.log(ta.det(me.C[layer])) - 1
+    me.get_energy = theano.function([me.v], me.energy)
 
-  def zero(me):
-    return [0] * 8
+    "free energy gradients."
+    me.param = me.Wv[1:] + me.Wu[1:] + me.Wd[1:] + me.Wmu[1:] + me.bv[1:] + me.bu[1:] + me.bd[1:]+ me.bmu[1:]
+    me.G2 = [np.zeros(x.get_value().shape) for x in me.param] # variance of gradient.
+    me.gradient = ts.grad(me.energy, me.param)
+    me.get_grad = theano.function([me.v], me.gradient)
+   
+    """ stochastic gradients.
+        trick. pretend our objective is inner product with the stochastic gradients.
+    """
+    me.grad_mu = [None] * me.num_layers
+    me.grad_C = [None] * me.num_layers
+    me.obj_mu = 0
+    me.obj_C = 0
+    for layer in range(1, me.num_layers):
+      me.grad_mu[layer] = ts.vector('grad_mu_%d' % layer)
+      me.grad_C[layer] = ts.matrix('grad_C_%d' % layer)
+      me.obj_mu += ts.sum(me.mu[layer] * me.grad_mu[layer])
+      me.obj_C += ts.sum(me.C[layer] * me.grad_C[layer])
+    me.stoc_grad = ts.grad(me.obj_mu + me.obj_C, me.param)
+    me.get_stoc_grad = theano.function([me.v] + me.grad_mu[1:] + me.grad_C[1:], me.stoc_grad)
+    
+  def pack(me):
+    return {'Wv': get_value_all(me.Wv), 
+            'Wu': get_value_all(me.Wu),
+            'Wd': get_value_all(me.Wd),
+            'Wmu': get_value_all(me.Wmu),
+            'bv': get_value_all(me.bv),
+            'bu': get_value_all(me.bu),
+            'bd': get_value_all(me.bd),
+            'bmu': get_value_all(me.bmu)}
         
 class DeepLatentGM:
   """
     train/test DLGM on datasets.
   """
-  def __init__(me, arch, batchsize=1, num_sample=1):
+  def __init__(me, arch, batchsize=1, num_sample=1, kappa=1):
     try:
-      # parallel
+      "parallel"
       me.rc = Client()
       me.num_threads = len(me.rc)
       for _import in imports:
@@ -169,18 +205,16 @@ class DeepLatentGM:
       me.view.block = True
       me.map = me.view.map
     except:
-      # cannot connect to parallel server.
+      "cannot connect to parallel server."
       me.num_threads = 1
       me.map = map
+
+    me.kappa = kappa
     me.batchsize = batchsize
     me.num_sample = num_sample
-    me.gmodel = list()
-    me.rmodel = list()
-    for ni in range(me.num_threads):
-      print 'compiling neural network', ni
-      me.gmodel += [GenerativeModel(arch)]
-      me.rmodel += [RecognitionModel(arch)]
-
+    printBlue('> Compiling neural network')
+    me.gmodel = GenerativeModel(arch)
+    me.rmodel = RecognitionModel(arch)
 
   def process(me, ti, v):
     """
@@ -190,16 +224,40 @@ class DeepLatentGM:
           ti: thread id.
           v: data point.
     """
-    rmodel = me.rmodel[ti]
-    gmodel = me.gmodel[ti]
-    grad_r = rmodel.zero()
-    grad_g = gmodel.zero()
+    rmodel = me.rmodel
+    gmodel = me.gmodel
+    grad_g = []
+    grad_r = []
+
     for si in range(me.num_sample):
-      # first sample stochastic variables.
+      "first sample stochastic variables."
       xi = rmodel.sample(v)
+
+      "compute gradient of generative model."
       gg = gmodel.get_grad(v, *xi)
+      param_neg(gg)
       param_add(grad_g, gg)
+
+      "compute gradient of regularizer in generative model."
+      gg_reg = gmodel.get_grad_reg()
+      param_mul_scalar(gg_reg, 1.0/me.kappa)
+      param_add(grad_g, gg_reg)
+
+      "compute free-energy gradient of recognition model."
+      gr = rmodel.get_grad(v)
+      param_add(grad_r, gr) 
+
+      "compute stochastic gradient of recognition model."
+      gg_xi = gmodel.get_grad_xi(v, *xi)
+      param_neg(gg_xi)
+      hh_xi = gmodel.get_hess_xi(v, *xi)
+      param_neg(hh_xi)
+      param_mul_scalar(hh_xi, .5)
+      gr_stoc = rmodel.get_stoc_grad(v, *(gg_xi + hh_xi))
+      param_add(grad_r, gr_stoc)
+
     param_mul_scalar(grad_g, 1.0/me.num_sample)
+    param_mul_scalar(grad_r, 1.0/me.num_sample)
     return (grad_g, grad_r) 
       
   def train(me, data, num_iter):
@@ -208,25 +266,33 @@ class DeepLatentGM:
         > input
           data: N x D data matrix, each row is a data of dimension D.
     """
+    printBlue('> Start training neural nets')
+
     data = np.array(data)
     for it in range(num_iter):
+      "extract mini-batch" 
       ind = npr.choice(range(data.shape[0]), me.batchsize)
       V = data[ind, :]
+
+      "compute gradients"
       result = me.map(me.process, range(me.num_threads), list(V))
+      grad_r = []
+      grad_g = []
       for (ti, res) in enumerate(result):
-        rmodel = me.rmodel[ti]
-        gmodel = me.gmodel[ti]
-        grad_r = rmodel.zero()
-        grad_g = gmodel.zero()
         param_add(grad_g, res[0])
         param_add(grad_r, res[1])
-       
 
+      "aggregate gradients"
+      AdaGRAD(me.gmodel.param, grad_g, me.gmodel.G2)
+      AdaGRAD(me.rmodel.param, grad_r, me.rmodel.G2)
 
+    printBlue('> Training complete')
 
 if __name__ == "__main__":
   model = DeepLatentGM([2,4,8]) 
-  model.train([[1,1]], 1)
+  model.train(npr.randn(1024,2), 16)
+  print 'Generative Model', model.gmodel.pack()
+  print 'Recognition Model', model.rmodel.pack()
 
 
     
