@@ -17,6 +17,7 @@ for _import in imports:
   exec _import
 import pdb
 
+import time
 from IPython.parallel import Client
 
 theano.config.exception_verbosity = 'low'
@@ -281,27 +282,43 @@ class DeepLatentGM(object):
       grad_r = []
       for si in range(me.num_sample):
         "first sample stochastic variables."
+
+        ta = time.clock()
         eps = rmodel.sample_eps(v)
         xi = rmodel.sample(v, eps)
+        tb = time.clock()
+        print 'time[sample]', tb-ta
 
         # pdb.set_trace()
+        ta = time.clock()
         "compute gradient of generative model."
         gg = gmodel.get_grad(v, *xi)
         gg = param_neg(gg)
         grad_g = param_add(grad_g, gg)
+        tb = time.clock()
+        print 'time[grad of generative]', tb-ta
 
         "compute gradient of regularizer in generative model."
+        ta = time.clock()
         gg_reg = gmodel.get_grad_reg()
         gg_reg = param_mul_scalar(gg_reg, me.kappa)
         grad_g = param_add(grad_g, gg_reg)
+        tb = time.clock()
+        print 'time[grad of regularizer]', tb-ta
 
         "compute free-energy gradient of recognition model."
+        ta = time.clock()
         gr = rmodel.get_grad(v)
         grad_r = param_add(grad_r, gr) 
+        tb = time.clock()
+        print 'time[grad of recog energy]', tb-ta
 
         "compute stochastic gradient of recognition model."
+        ta = time.clock()
         gg_xi = gmodel.get_grad_xi(v, *xi)
         gg_xi = param_neg(gg_xi)
+        tb = time.clock()
+        print 'time[grad of stoc grad]', tb-ta
 
         # compute hessian: strategy 1. (numerically unstable)
         # hh_xi = gmodel.get_hess_xi(v, *xi)
@@ -358,7 +375,6 @@ class DeepLatentGM(object):
           Vs[ni] = V[ni * bsize: min((ni+1) * bsize, len(V))]
 
         result = mapf(me.process, range(me.num_threads), Vs)
-        print len(allind)
 
         grad_r = []
         grad_g = []
