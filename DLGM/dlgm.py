@@ -268,13 +268,13 @@ class DeepLatentGM(object):
 
     me.ell = ell
     me.num_label = num_label
-    me.W = np.zeros((sum(arch[1:]), me.num_label))
+    me.W = np.zeros((sum(arch[1:])+1, me.num_label))
     me.W_G2 = np.zeros_like(me.W)
     me.c = c
     me.v = 1
 
   def __concat__(me, xi):
-    latent = []
+    latent = [1]
     for x in xi:
       latent += list(x)
     latent = np.array(latent)

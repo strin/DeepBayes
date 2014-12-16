@@ -19,7 +19,7 @@ def run(kappa, sigma, stepsize):
   test_data = np.array(mat['testData'])
   test_label = np.argmax(np.array(mat['testLabels']), axis=1)
 
-  output_path = '../result/kappa_%f_sigma_%f_stepsize_%f' % (kappa, sigma, stepsize)
+  output_path = '../result/bias_stepsize_%f' % ( stepsize)
   os.system('mkdir -p ../result/%s' % output_path)
   model = DeepLatentGM([784, 50, 50], batchsize=128, kappa=kappa, sigma=sigma, rec_hidden=50, stepsize=stepsize,\
                         num_label=10)
