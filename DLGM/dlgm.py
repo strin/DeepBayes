@@ -8,6 +8,7 @@ including
 imports = ['import numpy as np', 
            'import numpy.random as npr', 
            'import theano',
+           'import sys, os',
            'import scipy.io as sio', 
            'import theano.sandbox.linalg as ta',
            'import theano.tensor as ts',
@@ -375,17 +376,20 @@ class DeepLatentGM(object):
       predict += [yp]
       if yp == lb:
         acc += 1
-    acc /= float(len(v))
+    acc /= float(len(data))
     return (predict, acc)
 
   def sample(me, data):
     recon = []
+    xis = []
     for v in data:
       eps = me.rmodel.sample_eps(v)
+      xi = me.rmodel.sample(v, eps)
+      xis.append(xi)
       recon.append(me.gmodel.sample(me.rmodel.sample(v, eps)))
-    return recon
+    return (recon, xis)
       
-  def train(me, data, label, num_iter, test_data = None, test_label = None):
+  def train(me, data, label, num_iter, test_data = None, test_label = None, output_path = '.'):
     """
       start the training algorithm.
         > input
@@ -432,9 +436,10 @@ class DeepLatentGM(object):
         print 'epoch = ', it, '-lhood', me.neg_lhood(test_data), '-lhood(train)', me.neg_lhood(data), 'test acc', acc
         # print '\tGenerative Model', me.gmodel.pack()
         # print '\tRecognition Model', me.rmodel.pack()
-        recon = me.sample(test_data)
+        (recon, xis) = me.sample(test_data)
         recon_train = me.sample(data)
-        sio.savemat('recon.mat', {'recon': recon, 'data':test_data, 'recon_train':recon_train})
+        os.system('mkdir -p %s' % output_path)
+        sio.savemat('%s/recon.mat' % output_path, {'recon': recon, 'xi': xis, 'data':test_data, 'recon_train':recon_train})
 
 
     printBlue('> Training complete')
