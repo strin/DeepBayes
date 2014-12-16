@@ -39,8 +39,10 @@ def AdaGRAD(param, grad, G2, stepsize):
   """
   for (p, g, g2) in zip(param, grad, G2):
     g2[:] = (g2 + g * g)[:]
-    # p.set_value(p.get_value() - stepsize * g / (1e-4 + np.sqrt(g2))) 
-    p.set_value(p.get_value() - stepsize * g)
+    if type(p) == theano.tensor.sharedvar.TensorSharedVariable:
+      p.set_value(p.get_value() - stepsize * g / (1e-4 + np.sqrt(g2))) 
+    elif type(p) == np.ndarray:
+      p[:] = p[:] - stepsize * g[:] / (1e-4 + np.sqrt(g2[:]))
 
 class GenerativeModel:
   """ generative model 
@@ -251,7 +253,8 @@ class DeepLatentGM(object):
   """
     train/test DLGM on datasets.
   """
-  def __init__(me, arch, batchsize=1, num_sample=1, kappa=1, sigma=1, rec_hidden=100, stepsize=0.1):
+  def __init__(me, arch, batchsize = 1, num_sample = 1, kappa = 1, sigma = 1, rec_hidden = 100, 
+                    stepsize=0.1, num_label=2, ell=100, c = 1, v = 1):
     me.num_threads = num_threads
     printBlue('> Thread Pool (%d)' % me.num_threads)
     me.kappa = kappa
@@ -262,8 +265,21 @@ class DeepLatentGM(object):
     me.gmodel = GenerativeModel(arch, kappa=kappa)
     me.rmodel = RecognitionModel(arch, num_hidden=rec_hidden, sigma=sigma)
 
+    me.ell = ell
+    me.num_label = num_label
+    me.W = np.zeros((sum(arch[1:]), me.num_label))
+    me.W_G2 = np.zeros_like(me.W)
+    me.c = c
+    me.v = 1
 
-  def process(me, ti, V):
+  def __concat__(me, xi):
+    latent = []
+    for x in xi:
+      latent += list(x)
+    latent = np.array(latent)
+    return latent
+
+  def process(me, ti, V, Y = None):
     """
       process one single data point.
         > return: (grad of generative model, grad of recognition model)
@@ -276,8 +292,9 @@ class DeepLatentGM(object):
 
     grad_gs = []
     grad_rs = []
+    grad_w = np.zeros_like(me.W)
 
-    for v in V:
+    for (vi, v) in enumerate(V):
       grad_g = []
       grad_r = []
       for si in range(me.num_sample):
@@ -286,7 +303,6 @@ class DeepLatentGM(object):
         eps = rmodel.sample_eps(v)
         xi = rmodel.sample(v, eps)
 
-        # pdb.set_trace()
         "compute gradient of generative model."
         gg = gmodel.get_grad(v, *xi)
         gg = param_neg(gg)
@@ -309,17 +325,35 @@ class DeepLatentGM(object):
         # hh_xi = gmodel.get_hess_xi(v, *xi)
         # hh_xi = param_neg(hh_xi)
         # hh_xi = param_mul_scalar(hh_xi, .5)
+        "add supervision"
+        if Y != None:
+          latent = me.__concat__(xi)
+          y = Y[vi]
+          
+          resp = me.ell + np.dot(latent, me.W) - np.dot(latent, me.W[:,y])
+          resp[y] = 0
+          yp = np.argmax(resp) 
+          grad_w[:,yp] += latent
+          grad_w[:,y] -= latent
+
+          ind = 0
+          for ni in range(len(gg_xi)):
+            for nj in range(len(gg_xi[ni])):
+              gg_xi[ni][nj] + me.c * (me.W[ind, yp] - me.W[ind, y])
+              ind += 1
 
         gr_stoc = rmodel.get_stoc_grad(v, *(gg_xi + eps))
         grad_r = param_add(grad_r, gr_stoc)
 
+
       grad_g = param_mul_scalar(grad_g, 1.0/me.num_sample)
       grad_r = param_mul_scalar(grad_r, 1.0/me.num_sample)
+      grad_w /= me.num_sample
 
       grad_gs = param_add(grad_gs, grad_g)
       grad_rs = param_add(grad_rs, grad_r)
       
-    return (grad_gs, grad_rs) 
+    return (grad_gs, grad_rs, grad_w) 
 
   def neg_lhood(me, data):
     nlh = 0
@@ -329,6 +363,21 @@ class DeepLatentGM(object):
       nlh -= me.gmodel.get_lhood(v, *xi)
     return nlh
 
+  def test(me, data, label):
+    predict = []
+    acc = 0
+    for (v, lb) in zip(data, label):
+      eps = me.rmodel.sample_eps(v)
+      xi = me.rmodel.sample(v, eps)
+      latent = me.__concat__(xi)
+      resp = np.dot(latent, me.W)
+      yp = np.argmax(resp)
+      predict += [yp]
+      if yp == lb:
+        acc += 1
+    acc /= float(len(v))
+    return (predict, acc)
+
   def sample(me, data):
     recon = []
     for v in data:
@@ -336,7 +385,7 @@ class DeepLatentGM(object):
       recon.append(me.gmodel.sample(me.rmodel.sample(v, eps)))
     return recon
       
-  def train(me, data, num_iter, test_data = None):
+  def train(me, data, label, num_iter, test_data = None, test_label = None):
     """
       start the training algorithm.
         > input
@@ -352,32 +401,35 @@ class DeepLatentGM(object):
         ind = npr.choice(list(allind), me.batchsize, replace=False)
         allind -= set(ind)
         V = data[ind, :]
+        Y = label[ind]
 
         "compute gradients"
-        bsize = np.ceil(len(V)/me.num_threads)
-        Vs = [None] * me.num_threads
-        for ni in range(me.num_threads):
-          Vs[ni] = V[ni * bsize: min((ni+1) * bsize, len(V))]
-
-        result = mapf(me.process, range(me.num_threads), Vs)
+        # result = mapf(me.process, range(me.num_threads), [V])
+        result = mapf(me.process, [0], [V], [Y])
 
         grad_r = []
         grad_g = []
+        grad_w = np.zeros_like(me.W)
+
         for (ti, res) in enumerate(result):
           grad_g = param_add(grad_g, res[0])
           grad_r = param_add(grad_r, res[1])
+          grad_w += res[2]
         
         grad_g = param_mul_scalar(grad_g, 1.0/len(V));
         grad_r = param_mul_scalar(grad_r, 1.0/len(V));
+        grad_w /= len(V)
 
 
         "aggregate gradients"
         AdaGRAD(me.gmodel.param, grad_g, me.gmodel.G2, me.stepsize)
         AdaGRAD(me.rmodel.param, grad_r, me.rmodel.G2, me.stepsize)
-        
+        AdaGRAD([me.W], [grad_w], [me.W_G2], [me.stepsize])
+
       "evaluate"
       if test_data != None:
-        print 'epoch = ', it, '-lhood', me.neg_lhood(test_data), '-lhood(train)', me.neg_lhood(data)
+        [predict, acc] = me.test(test_data, test_label)
+        print 'epoch = ', it, '-lhood', me.neg_lhood(test_data), '-lhood(train)', me.neg_lhood(data), 'test acc', acc
         # print '\tGenerative Model', me.gmodel.pack()
         # print '\tRecognition Model', me.rmodel.pack()
         recon = me.sample(test_data)
