@@ -181,8 +181,7 @@ class RecognitionModel:
     me.get_R = theano.function([me.v], me.R[1:])
     me.get_C = theano.function([me.v], me.C[1:])
 
-    me.sample_eps = lambda v: [np.array([npr.normal(0, 1) for di in d]) \
-                          for (mu, u, d) in zip(me.get_mu(v), me.get_u(v), me.get_d(v))]
+    me.sample_eps = lambda v: [npr.normal(0, 1, ar) for ar in me.arch[1:]]
 
     me.sample = lambda v, eps: param_add(me.get_mu(v), me.Rdot(v, *eps)) 
 
@@ -218,6 +217,8 @@ class RecognitionModel:
       me.obj_mu += ts.sum(me.mu[layer] * me.grad_gm[layer])
       me.obj_R += .5 * ts.dot(me.grad_gm[layer] * me.eps[layer], 1/ts.sqrt(me.d[layer])) + 0 * ts.dot(me.u[layer].T,
           me.u[layer])
+      # me.obj_R += .5 * (ts.outer(me.grad_gm[layer], me.eps[layer]) * 1/ts.sqrt(me.d[layer])).sum() + 0 * ts.dot(me.u[layer].T,
+      #     me.u[layer])
     me.stoc_grad = ts.grad(me.obj_mu + me.obj_R, me.param)
     me.get_stoc_grad = theano.function([me.v] + me.grad_gm[1:] + me.eps[1:], me.stoc_grad)
     
@@ -300,7 +301,6 @@ class DeepLatentGM(object):
       grad_r = []
       for si in range(me.num_sample):
         "first sample stochastic variables."
-
         eps = rmodel.sample_eps(v)
         xi = rmodel.sample(v, eps)
 
@@ -337,10 +337,10 @@ class DeepLatentGM(object):
           grad_w[:,yp] += latent
           grad_w[:,y] -= latent
 
-          ind = 0
+          ind = 1   # skip bias.
           for ni in range(len(gg_xi)):
             for nj in range(len(gg_xi[ni])):
-              gg_xi[ni][nj] + me.c * (me.W[ind, yp] - me.W[ind, y])
+              gg_xi[ni][nj] += me.c * (me.W[ind, yp] - me.W[ind, y])
               ind += 1
 
         gr_stoc = rmodel.get_stoc_grad(v, *(gg_xi + eps))
@@ -368,8 +368,9 @@ class DeepLatentGM(object):
     predict = []
     acc = 0
     for (v, lb) in zip(data, label):
-      eps = me.rmodel.sample_eps(v)
-      xi = me.rmodel.sample(v, eps)
+      # eps = me.rmodel.sample_eps(v)
+      # xi = me.rmodel.sample(v, eps)
+      xi = me.rmodel.get_mu(v)        # use posterior mean to make predictions.
       latent = me.__concat__(xi)
       resp = np.dot(latent, me.W)
       yp = np.argmax(resp)
@@ -398,6 +399,12 @@ class DeepLatentGM(object):
     printBlue('> Start training neural nets')
 
     data = np.array(data)
+    lhood = []
+    test_lhood = []
+    recon_err = []
+    test_recon_err = []
+    accuracy = []
+
     for it in range(num_iter):
       allind = set(range(data.shape[0]))
       while len(allind) >= me.batchsize:
@@ -408,7 +415,6 @@ class DeepLatentGM(object):
         Y = label[ind]
 
         "compute gradients"
-        # result = mapf(me.process, range(me.num_threads), [V])
         result = mapf(me.process, [0], [V], [Y])
 
         grad_r = []
@@ -428,18 +434,27 @@ class DeepLatentGM(object):
         "aggregate gradients"
         AdaGRAD(me.gmodel.param, grad_g, me.gmodel.G2, me.stepsize)
         AdaGRAD(me.rmodel.param, grad_r, me.rmodel.G2, me.stepsize)
-        AdaGRAD([me.W], [grad_w], [me.W_G2], [me.stepsize])
+        AdaGRAD([me.W], [grad_w], [me.W_G2], me.stepsize)
 
       "evaluate"
       if test_data != None:
         [predict, acc] = me.test(test_data, test_label)
-        print 'epoch = ', it, '-lhood', me.neg_lhood(test_data), '-lhood(train)', me.neg_lhood(data), 'test acc', acc
+        accuracy += [acc]
         # print '\tGenerative Model', me.gmodel.pack()
         # print '\tRecognition Model', me.rmodel.pack()
         (recon, xis) = me.sample(test_data)
+        recon_err += [toInt(recon != test_data).sum() / float(test_data.shape[0]) / float(test_data.shape[1])]
+
+        test_lhood += [me.neg_lhood(test_data)]
+        lhood += [me.neg_lhood(data)]
+        print 'epoch = ', it, '-lhood', test_lhood[-1], '-lhood(train)', lhood[-1], 'test recon err', recon_err[-1], 'test acc', acc
+
         recon_train = me.sample(data)
-        os.system('mkdir -p %s' % output_path)
-        sio.savemat('%s/recon.mat' % output_path, {'recon': recon, 'xi': xis, 'data':test_data, 'recon_train':recon_train})
+        recon_train_err = toInt(recon_train != data).sum() / float(data.shape[0]) / float(data.shape[1])
+
+        if it % 10 == 0:
+          os.system('mkdir -p %s' % output_path)
+          sio.savemat('%s/recon.mat' % output_path, {'recon': recon, 'xi': xis, 'data':test_data, 'recon_train':recon_train})
 
 
     printBlue('> Training complete')
@@ -449,19 +464,3 @@ if __name__ == "__main__":
   model.train(npr.randn(1024,2), 16)
   print 'Generative Model', model.gmodel.pack()
   print 'Recognition Model', model.rmodel.pack()
-
-
-    
-
-
-
-     
-    
-
-
-
-
-   
-
-
-

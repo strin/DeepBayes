@@ -5,6 +5,8 @@ import scipy.io as sio
 from multiprocessing import Pool
 import itertools
 
+toFloat = np.vectorize(float)
+
 def universal_worker(input_pair):
     function, args = input_pair
     return function(*args)
@@ -12,19 +14,33 @@ def universal_worker(input_pair):
 def pool_args(function, *args):
     return zip(itertools.repeat(function), zip(*args))
     
-def run(kappa, sigma, stepsize):
+def run(hidden, kappa, sigma, stepsize):
   mat = sio.loadmat('../data/mnist/mnistSmall.mat')
   train_data = np.array(mat['trainData'])
   train_label = np.argmax(np.array(mat['trainLabels']), axis=1)
   test_data = np.array(mat['testData'])
   test_label = np.argmax(np.array(mat['testLabels']), axis=1)
 
-  output_path = '../result/bias_stepsize_%f' % ( stepsize)
+  output_path = '../result/hidden_%d_kappa_%f_sigma_%f' % (hidden, kappa, sigma)
   os.system('mkdir -p ../result/%s' % output_path)
-  model = DeepLatentGM([784, 50, 50], batchsize=128, kappa=kappa, sigma=sigma, rec_hidden=50, stepsize=stepsize,\
+  model = DeepLatentGM([784, hidden, hidden], batchsize=128, kappa=kappa, sigma=sigma, rec_hidden=hidden, stepsize=stepsize,\
                         num_label=10)
   model.train(train_data, train_label, 2000, test_data = test_data, test_label = test_label, output_path=output_path)
 
-pool = Pool(10)
+def run_tiny():
+  mat = sio.loadmat('../data/mnist/mnistTiny.mat')
+  train_data = np.array(toFloat(mat['trainData'] > 0.5))   # binarize.
+  train_label = np.argmax(np.array(mat['trainLabels']), axis=1)
+  test_data = np.array(toFloat(mat['testData'] > 0.5))     # binarize.
+  test_label = np.argmax(np.array(mat['testLabels']), axis=1)
+
+  model = DeepLatentGM([784, 200, 200, 200], batchsize=32, kappa=0.1, sigma=0.01, rec_hidden=200, stepsize=0.01,\
+                        num_label=10, c = 10)
+  model.train(train_data, train_label, 2000, test_data = test_data, test_label = test_label)
+
+# pool = Pool(10)
 # pool.map(universal_worker, pool_args(run, [0] * 6, [0, 0.1, 0.01, 0.001, 0.0001, 0.00001], [0.01] * 6))
-pool.map(universal_worker, pool_args(run, [0] * 1, [0.01], [0.01] * 1))
+# pool.map(universal_worker, pool_args(run, [0] * 1, [0.01], [0.01] * 1))
+# run_tiny()
+run(int(sys.argv[1]), float(sys.argv[2]), float(sys.argv[3]), 0.01)
+
