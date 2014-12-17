@@ -19,12 +19,12 @@ def run(kappa, sigma, stepsize):
   test_data = np.array(mat['testData'])
   test_label = np.argmax(np.array(mat['testLabels']), axis=1)
 
-  output_path = '../result/bias_stepsize_%f' % ( stepsize)
+  output_path = '../result/hidden_100_stepsize_%f' % ( stepsize)
   os.system('mkdir -p ../result/%s' % output_path)
-  model = DeepLatentGM([784, 50, 50], batchsize=128, kappa=kappa, sigma=sigma, rec_hidden=50, stepsize=stepsize,\
+  model = DeepLatentGM([784, 50], batchsize=128, kappa=kappa, sigma=sigma, rec_hidden=50, stepsize=stepsize,\
                         num_label=10)
   model.train(train_data, train_label, 2000, test_data = test_data, test_label = test_label, output_path=output_path)
 
 pool = Pool(10)
 # pool.map(universal_worker, pool_args(run, [0] * 6, [0, 0.1, 0.01, 0.001, 0.0001, 0.00001], [0.01] * 6))
-pool.map(universal_worker, pool_args(run, [0] * 1, [0.01], [0.01] * 1))
+pool.map(universal_worker, pool_args(run, [0] * 1, [0.01], [0.001] * 1))
