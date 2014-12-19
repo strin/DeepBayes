@@ -454,7 +454,8 @@ class DeepLatentGM(object):
 
         if it % 10 == 0:
           os.system('mkdir -p %s' % output_path)
-          sio.savemat('%s/recon.mat' % output_path, {'recon': recon, 'xi': xis, 'data':test_data, 'recon_train':recon_train})
+          sio.savemat('%s/recon.mat' % output_path, {'recon': recon, 'xi': xis, 'data':test_data, \
+          'recon_train':recon_train, 'lhood':lhood, 'test_lhood':test_lhood, 'recon_err':recon_err, 'test_acc':accuracy})
 
 
     printBlue('> Training complete')

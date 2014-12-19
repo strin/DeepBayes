@@ -25,7 +25,7 @@ def run(hidden, kappa, sigma, stepsize):
   os.system('mkdir -p ../result/%s' % output_path)
   model = DeepLatentGM([784, hidden, hidden], batchsize=128, kappa=kappa, sigma=sigma, rec_hidden=hidden, stepsize=stepsize,\
                         num_label=10)
-  model.train(train_data, train_label, 2000, test_data = test_data, test_label = test_label, output_path=output_path)
+  model.train(train_data, train_label, 500, test_data = test_data, test_label = test_label, output_path=output_path)
 
 def run_tiny():
   mat = sio.loadmat('../data/mnist/mnistTiny.mat')
@@ -36,7 +36,7 @@ def run_tiny():
 
   model = DeepLatentGM([784, 200, 200, 200], batchsize=32, kappa=0.1, sigma=0.01, rec_hidden=200, stepsize=0.01,\
                         num_label=10, c = 10)
-  model.train(train_data, train_label, 2000, test_data = test_data, test_label = test_label)
+  model.train(train_data, train_label, 500, test_data = test_data, test_label = test_label)
 
 run(int(sys.argv[1]), float(sys.argv[2]), float(sys.argv[3]), 0.01)
 
