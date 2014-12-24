@@ -133,9 +133,12 @@ class RBM(object):
 
     # initialize parameters for supervised learning. 
     self.c = c
-    self.ell = 164
+    self.ell = 16
     self.weights =  theano.shared(
-                      value=numpy.random.randn(n_hidden, n_class),
+                      value=numpy.zeros(
+                        (n_hidden, n_class),
+                        dtype=theano.config.floatX
+                      ),
                       name='weights',
                       borrow=True
                     )
@@ -327,6 +330,7 @@ class RBM(object):
       # reconstruction cross-entropy is a better proxy for CD
       monitoring_cost = self.get_reconstruction_cost(updates,
                                pre_sigmoid_nvs[-1])
+
     train_err = self.get_error(nh_means[-1], self.label)
     return monitoring_cost, train_err, updates
     # end-snippet-4
@@ -334,6 +338,7 @@ class RBM(object):
   def get_error(self, predict, label):
     return T.neq(T.argmax(predict, axis=1), 
                 T.argmax(label, axis=1)).sum() / T.cast(label.shape[0], dtype=theano.config.floatX)
+
 
   def get_pseudo_likelihood_cost(self, updates):
     """Stochastic approximation to the pseudo-likelihood"""
