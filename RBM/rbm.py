@@ -39,8 +39,13 @@ class RBM(object):
     vbias=None,
     numpy_rng=None,
     theano_rng=None,
+<<<<<<< HEAD
     c = 1,
     ell = 100, 
+=======
+    c = 10,
+    ell = 16, 
+>>>>>>> 27217c742eb1d57bda602d8a9253ce9be6d997ca
     n_class = 10,
   ):
     """
@@ -133,9 +138,18 @@ class RBM(object):
 
     # initialize parameters for supervised learning. 
     self.c = c
+<<<<<<< HEAD
     self.ell = 164
     self.weights =  theano.shared(
                       value=numpy.random.randn(n_hidden, n_class),
+=======
+    self.ell = 16
+    self.weights =  theano.shared(
+                      value=numpy.zeros(
+                        (n_hidden, n_class),
+                        dtype=theano.config.floatX
+                      ),
+>>>>>>> 27217c742eb1d57bda602d8a9253ce9be6d997ca
                       name='weights',
                       borrow=True
                     )
@@ -157,16 +171,23 @@ class RBM(object):
     return -hidden_term - vbias_term
 
   def loss(self, h_sample, y):
+<<<<<<< HEAD
+=======
+    return T.dot(h_sample, self.weights).sum()
+>>>>>>> 27217c742eb1d57bda602d8a9253ce9be6d997ca
     ell = T.cast(self.ell, dtype=theano.config.floatX)
     true_resp = (T.dot(h_sample, self.weights) * y).sum(axis=1, keepdims=True)
     T.addbroadcast(true_resp, 1)
     return (self.ell * (1-y) + T.dot(h_sample, self.weights) - true_resp).max(axis=1).sum()
 
+<<<<<<< HEAD
   def classify(self, vis):
     pre_sigmoid_ph, ph_mean, ph_sample = self.sample_h_given_v(vis)
     predict = T.dot(ph_mean, self.weights)
     return predict
 
+=======
+>>>>>>> 27217c742eb1d57bda602d8a9253ce9be6d997ca
   def propup(self, vis):
     '''This function propagates the visible units activation upwards to
     the hidden units
@@ -327,6 +348,7 @@ class RBM(object):
       # reconstruction cross-entropy is a better proxy for CD
       monitoring_cost = self.get_reconstruction_cost(updates,
                                pre_sigmoid_nvs[-1])
+<<<<<<< HEAD
     train_err = self.get_error(nh_means[-1], self.label)
     return monitoring_cost, train_err, updates
     # end-snippet-4
@@ -334,6 +356,15 @@ class RBM(object):
   def get_error(self, predict, label):
     return T.neq(T.argmax(predict, axis=1), 
                 T.argmax(label, axis=1)).sum() / T.cast(label.shape[0], dtype=theano.config.floatX)
+=======
+    train_err = self.get_error(chain_end_hidden, self.label)
+    return monitoring_cost, train_err, updates
+    # end-snippet-4
+
+  def get_error(self, h_sample, label):
+    return T.neq(T.argmax(T.dot(h_sample, self.weights)), 
+                T.argmax(label)) / T.cast(label.shape[0], dtype=theano.config.floatX)
+>>>>>>> 27217c742eb1d57bda602d8a9253ce9be6d997ca
 
   def get_pseudo_likelihood_cost(self, updates):
     """Stochastic approximation to the pseudo-likelihood"""
@@ -444,7 +475,10 @@ def test_rbm(learning_rate=1, training_epochs=15,
     return sharedy
 
   train_set_y_ind = convert_to_ind(train_set_y)
+<<<<<<< HEAD
   test_set_y_ind = convert_to_ind(test_set_y)
+=======
+>>>>>>> 27217c742eb1d57bda602d8a9253ce9be6d997ca
 
 
   # compute number of minibatches for training, validation and testing
@@ -522,10 +556,14 @@ def test_rbm(learning_rate=1, training_epochs=15,
       mean_cost += [cost]
       mean_train_err += [train_err]
 
+<<<<<<< HEAD
     # Test on test set.
     [predict, test_err] = test_rbm()
     test_err_list += [test_err]
     print 'Training epoch %d, cost = %f, test err = %f' % (epoch, numpy.mean(mean_cost), test_err)
+=======
+    print 'Training epoch %d, cost = %f, train err = %f' % (epoch, numpy.mean(mean_cost), numpy.mean(mean_train_err))
+>>>>>>> 27217c742eb1d57bda602d8a9253ce9be6d997ca
 
     # Plot filters after each training epoch
     plotting_start = time.clock()
