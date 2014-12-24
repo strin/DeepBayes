@@ -31,13 +31,17 @@ class RBM(object):
   def __init__(
     self,
     input=None,
+    label=None,
     n_visible=784,
     n_hidden=500,
     W=None,
     hbias=None,
     vbias=None,
     numpy_rng=None,
-    theano_rng=None
+    theano_rng=None,
+    c = 10,
+    ell = 16, 
+    n_class = 10,
   ):
     """
     RBM constructor. Defines the parameters of the model along with
@@ -116,6 +120,9 @@ class RBM(object):
     self.input = input
     if not input:
       self.input = T.matrix('input')
+    self.label = label
+    if not label:
+      self.label = T.matrix('label')
 
     self.W = W
     self.hbias = hbias
@@ -123,11 +130,25 @@ class RBM(object):
     self.theano_rng = theano_rng
     # **** WARNING: It is not a good idea to put things in this list
     # other than shared variables created in this function.
-    self.params = [self.W, self.hbias, self.vbias]
+
+    # initialize parameters for supervised learning. 
+    self.c = c
+    self.ell = 16
+    self.weights =  theano.shared(
+                      value=numpy.zeros(
+                        (n_hidden, n_class),
+                        dtype=theano.config.floatX
+                      ),
+                      name='weights',
+                      borrow=True
+                    )
+    # parameter grouping.
+    self.params = [self.W, self.hbias, self.vbias, self.weights]
     self.G2 = [
-                theano.shared(value=numpy.zeros_like(initial_W), borrow=True),    \
-                theano.shared(value=numpy.zeros(n_hidden), borrow=True),\
-                theano.shared(value=numpy.zeros(n_visible), borrow=True) \
+                theano.shared(value=numpy.zeros_like(initial_W), borrow=True),  
+                theano.shared(value=numpy.zeros(n_hidden), borrow=True),
+                theano.shared(value=numpy.zeros(n_visible), borrow=True), 
+                theano.shared(value=numpy.zeros((n_hidden, n_class)), borrow=True)
               ]
     # end-snippet-1
 
@@ -137,6 +158,13 @@ class RBM(object):
     vbias_term = T.dot(v_sample, self.vbias)
     hidden_term = T.sum(T.log(1 + T.exp(wx_b)), axis=1)
     return -hidden_term - vbias_term
+
+  def loss(self, h_sample, y):
+    return T.dot(h_sample, self.weights).sum()
+    ell = T.cast(self.ell, dtype=theano.config.floatX)
+    true_resp = (T.dot(h_sample, self.weights) * y).sum(axis=1, keepdims=True)
+    T.addbroadcast(true_resp, 1)
+    return (self.ell * (1-y) + T.dot(h_sample, self.weights) - true_resp).max(axis=1).sum()
 
   def propup(self, vis):
     '''This function propagates the visible units activation upwards to
@@ -267,11 +295,12 @@ class RBM(object):
     # determine gradients on RBM parameters
     # note that we only need the sample at the end of the chain
     chain_end = nv_samples[-1]
+    chain_end_hidden = nh_samples[-1]
 
     cost = T.mean(self.free_energy(self.input)) - T.mean(
-      self.free_energy(chain_end))
+      self.free_energy(chain_end)) + self.c * self.loss(chain_end_hidden, self.label)
     # We must not compute the gradient through the gibbs sampling
-    gparams = T.grad(cost, self.params, consider_constant=[chain_end])
+    gparams = T.grad(cost, self.params, consider_constant=[chain_end, chain_end_hidden])
     # end-snippet-3 start-snippet-4
     if update_method == 'sgd':
       # constructs the update dictionary
@@ -297,9 +326,13 @@ class RBM(object):
       # reconstruction cross-entropy is a better proxy for CD
       monitoring_cost = self.get_reconstruction_cost(updates,
                                pre_sigmoid_nvs[-1])
-
-    return monitoring_cost, updates
+    train_err = self.get_error(chain_end_hidden, self.label)
+    return monitoring_cost, train_err, updates
     # end-snippet-4
+
+  def get_error(self, h_sample, label):
+    return T.neq(T.argmax(T.dot(h_sample, self.weights)), 
+                T.argmax(label)) / T.cast(label.shape[0], dtype=theano.config.floatX)
 
   def get_pseudo_likelihood_cost(self, updates):
     """Stochastic approximation to the pseudo-likelihood"""
@@ -398,12 +431,27 @@ def test_rbm(learning_rate=0.1, training_epochs=15,
   train_set_x, train_set_y = datasets[0]
   test_set_x, test_set_y = datasets[2]
 
+  def convert_to_ind(y, borrow=True):
+    y = y.get_value()
+    label = numpy.unique(y)
+    newy = numpy.zeros((len(y), len(label)))
+    for i in range(len(y)):
+        newy[i, y[i]] = 1
+    sharedy = theano.shared(numpy.asarray(newy,
+                                          dtype=theano.config.floatX),
+                            borrow=borrow)
+    return sharedy
+
+  train_set_y_ind = convert_to_ind(train_set_y)
+
+
   # compute number of minibatches for training, validation and testing
   n_train_batches = train_set_x.get_value(borrow=True).shape[0] / batch_size
 
   # allocate symbolic variables for the data
   index = T.lscalar()  # index to a [mini]batch
   x = T.matrix('x')  # the data is presented as rasterized images
+  y = T.matrix('y')  # the label is a N x C matrix, each row only true class is 1.
 
   rng = numpy.random.RandomState(123)
   theano_rng = RandomStreams(rng.randint(2 ** 30))
@@ -415,11 +463,11 @@ def test_rbm(learning_rate=0.1, training_epochs=15,
                    borrow=True)
 
   # construct the RBM class
-  rbm = RBM(input=x, n_visible=28 * 28,
+  rbm = RBM(input=x, label=y, n_visible=28 * 28,
         n_hidden=n_hidden, numpy_rng=rng, theano_rng=theano_rng)
 
   # get the cost and the gradient corresponding to one step of CD-15
-  cost, updates = rbm.get_cost_updates(lr=learning_rate,
+  cost, train_err, updates = rbm.get_cost_updates(lr=learning_rate,
                      persistent=persistent_chain, k=15)
 
   #################################
@@ -434,10 +482,11 @@ def test_rbm(learning_rate=0.1, training_epochs=15,
   # the purpose of train_rbm is solely to update the RBM parameters
   train_rbm = theano.function(
     [index],
-    cost,
+    [cost, train_err],
     updates=updates,
     givens={
-      x: train_set_x[index * batch_size: (index + 1) * batch_size]
+      x: train_set_x[index * batch_size: (index + 1) * batch_size], 
+      y: train_set_y_ind[index * batch_size : (index + 1) * batch_size]
     },
     name='train_rbm'
   )
@@ -450,10 +499,13 @@ def test_rbm(learning_rate=0.1, training_epochs=15,
 
     # go through the training set
     mean_cost = []
+    mean_train_err = []
     for batch_index in xrange(n_train_batches):
-      mean_cost += [train_rbm(batch_index)]
+      [cost, train_err] = train_rbm(batch_index)
+      mean_cost += [cost]
+      mean_train_err += [train_err]
 
-    print 'Training epoch %d, cost is ' % epoch, numpy.mean(mean_cost)
+    print 'Training epoch %d, cost = %f, train err = %f' % (epoch, numpy.mean(mean_cost), numpy.mean(mean_train_err))
 
     # Plot filters after each training epoch
     plotting_start = time.clock()
