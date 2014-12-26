@@ -410,10 +410,10 @@ class RBM(object):
     return cross_entropy
 
 
-def test_rbm(learning_rate=1, training_epochs=15,
+def test_rbm(learning_rate=1, training_epochs=200,
        dataset='../data/mnist/mnist.pkl.gz', batch_size=32,
        n_chains=20, n_samples=10, output_folder='rbm_plots',
-       n_hidden=500, n_example=-1):
+       n_hidden=200, n_example=-1):
   """
   Demonstrate how to train and afterwards sample from it using Theano.
 
@@ -532,22 +532,6 @@ def test_rbm(learning_rate=1, training_epochs=15,
     test_err_list += [test_err]
     print 'Training epoch %d, cost = %f, test err = %f' % (epoch, numpy.mean(mean_cost), test_err)
 
-    # Plot filters after each training epoch
-    plotting_start = time.clock()
-
-    # Construct image from the weight matrix
-    image = Image.fromarray(
-      tile_raster_images(
-        X=rbm.W.get_value(borrow=True).T,
-        img_shape=(28, 28),
-        tile_shape=(10, 10),
-        tile_spacing=(1, 1)
-      )
-    )
-    image.save('filters_at_epoch_%i.png' % epoch)
-    plotting_stop = time.clock()
-    plotting_time += (plotting_stop - plotting_start)
-
   end_time = time.clock()
 
   pretraining_time = (end_time - start_time) - plotting_time
@@ -631,4 +615,4 @@ def test_rbm(learning_rate=1, training_epochs=15,
 
 if __name__ == '__main__':
   test_rbm(n_example=-1)
-  # test_rbm(n_example=1000)
+  #test_rbm(n_example=100)
