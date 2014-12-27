@@ -52,6 +52,6 @@ def run_tiny(hidden, kappa, sigma, c, stepsize):
                         num_label=10, c = c, ell=10)
   model.train(train_data, train_label, 500, test_data = test_data, test_label = test_label)
 
-run_tiny(int(sys.argv[1]), float(sys.argv[2]), float(sys.argv[3]), float(sys.argv[4]), 0.01)
-# run_full(int(sys.argv[1]), float(sys.argv[2]), float(sys.argv[3]), float(sys.argv[4]), 0.01)
+# run_tiny(int(sys.argv[1]), float(sys.argv[2]), float(sys.argv[3]), float(sys.argv[4]), 0.01)
+run_full(int(sys.argv[1]), float(sys.argv[2]), float(sys.argv[3]), float(sys.argv[4]), 0.01)
 
