@@ -281,7 +281,8 @@ class AutoEncoder(object):
 
       "add supervision"
       if Y != None:
-        latents = rmodel.get_mu(V)
+        # latents = rmodel.get_mu(V)
+        latents = xi
         for (ni, (y, latent)) in enumerate(zip(Y, latents.T)):
           latent = me.__concat__(latent)
           resp = me.ell + np.dot(latent, me.W) - np.dot(latent, me.W[:,y])
