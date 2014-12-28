@@ -27,6 +27,7 @@ theano.config.exception_verbosity = 'low'
 ts.logistic = lambda z: 1 / (1 + ts.exp(-z)) 
 np.logistic = lambda z: 1 / (1 + np.exp(-z))
 toInt = np.vectorize(int)
+toStr = np.vectorize(str)
 
 get_value = lambda x: x.get_value() if x != None else None
 get_value_all = lambda xs: [get_value(x) for x in xs]
@@ -223,19 +224,16 @@ class AutoEncoder(object):
       arch[1] = int(os.environ['hidden'])
     me.num_threads = num_threads
     printBlue('> Thread Pool (%d)' % me.num_threads)
+    me.arch = arch
     me.kappa = kappa
+    me.sigma = sigma
     me.batchsize = batchsize
     me.stepsize = stepsize
     me.num_sample = num_sample
-    printBlue('> Compiling neural network')
-    me.gmodel = Decoder(arch, kappa=kappa)
-    me.rmodel = Encoder(arch, sigma=sigma)
 
     me.ell = ell
     me.c = c
     me.num_label = num_label
-    me.W = np.zeros((sum(arch[1:])+1, me.num_label))
-    me.W_G2 = np.zeros_like(me.W)
 
     if os.environ.has_key('ell'):
       me.ell = float(os.environ['ell'])
@@ -248,7 +246,14 @@ class AutoEncoder(object):
     if os.environ.has_key('stepsize'):
       me.stepsize = float(os.environ['stepsize'])
     print 'ell = ', me.ell, 'c = ', me.c, 'sigma = ', me.sigma, 'kappa = ', me.kappa, \
-          'stepsize = ', me.stepsize, 'arch = ', arch
+          'stepsize = ', me.stepsize, 'arch = ', me.arch
+
+    printBlue('> Compiling neural network')
+    me.W = np.zeros((sum(me.arch[1:])+1, me.num_label))
+    me.W_G2 = np.zeros_like(me.W)
+    me.gmodel = Decoder(me.arch, kappa=me.kappa)
+    me.rmodel = Encoder(me.arch, sigma=me.sigma)
+
 
   def __concat__(me, xi):
     latent = [1]
@@ -414,6 +419,14 @@ class AutoEncoder(object):
           sio.savemat('%s/recon.mat' % output_path, {'recon': recon, 'xi': xi, 'xi_train':xi_train, 'data':test_data, 
                       'recon_train':recon_train, 'lhood':lhood, 'test_lhood':test_lhood, 'recon_err':recon_err, 
                       'recon_train_err':recon_train_err, 'test_acc':accuracy})
+    with open('log.txt', "a") as output:
+      output.write(' '.join(toStr(['ell = ', me.ell, 'c = ', me.c, 'sigma = ', me.sigma, 'kappa = ', me.kappa, \
+                    'stepsize = ', me.stepsize, 'arch = ', me.arch[0], me.arch[1]]))+'\n')
+      output.write(' '.join(toStr(['epoch = ', it, '-lhood', test_lhood[-1], '-lhood(train)', lhood[-1],  
+                    'test recon err', recon_err[-1], 'test acc', acc]))+'\n')
+      output.flush()
+      output.close()
+
 
 
     printBlue('> Training complete')
