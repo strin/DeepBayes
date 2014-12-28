@@ -136,18 +136,15 @@ class RBM(object):
     self.ell = 16
     self.weights =  theano.shared(
                       value=numpy.zeros(
-                        (n_hidden, n_class),
+                        (n_visible, n_class),
                         dtype=theano.config.floatX
                       ),
                       name='weights',
                       borrow=True
                     )
     # parameter grouping.
-    self.params = [self.W, self.hbias, self.vbias, self.weights]
+    self.params = [self.weights]
     self.G2 = [
-                theano.shared(value=numpy.zeros_like(initial_W), borrow=True),  
-                theano.shared(value=numpy.zeros(n_hidden), borrow=True),
-                theano.shared(value=numpy.zeros(n_visible), borrow=True), 
                 theano.shared(value=numpy.zeros((n_hidden, n_class)), borrow=True)
               ]
     # end-snippet-1
@@ -159,11 +156,11 @@ class RBM(object):
     hidden_term = T.sum(T.log(1 + T.exp(wx_b)), axis=1)
     return -hidden_term - vbias_term
 
-  def loss(self, h_sample, y):
+  def loss(self, vis, y):
     ell = T.cast(self.ell, dtype=theano.config.floatX)
-    true_resp = (T.dot(h_sample, self.weights) * y).sum(axis=1, keepdims=True)
+    true_resp = (T.dot(vis, self.weights) * y).sum(axis=1, keepdims=True)
     T.addbroadcast(true_resp, 1)
-    return (self.ell * (1-y) + T.dot(h_sample, self.weights) - true_resp).max(axis=1).sum()
+    return (self.ell * (1-y) + T.dot(vis, self.weights) - true_resp).max(axis=1).sum()
 
   def classify(self, vis):
     pre_sigmoid_ph, ph_mean, ph_sample = self.sample_h_given_v(vis)
@@ -259,52 +256,9 @@ class RBM(object):
     chain, if one is used.
 
     """
-
-    # compute positive phase
-    pre_sigmoid_ph, ph_mean, ph_sample = self.sample_h_given_v(self.input)
-
-    # decide how to initialize persistent chain:
-    # for CD, we use the newly generate hidden sample
-    # for PCD, we initialize from the old state of the chain
-    if persistent is None:
-      chain_start = ph_sample
-    else:
-      chain_start = persistent
-    # end-snippet-2
-    # perform actual negative phase
-    # in order to implement CD-k/PCD-k we need to scan over the
-    # function that implements one gibbs step k times.
-    # Read Theano tutorial on scan for more information :
-    # http://deeplearning.net/software/theano/library/scan.html
-    # the scan will return the entire Gibbs chain
-    (
-      [
-        pre_sigmoid_nvs,
-        nv_means,
-        nv_samples,
-        pre_sigmoid_nhs,
-        nh_means,
-        nh_samples
-      ],
-      updates
-    ) = theano.scan(
-      self.gibbs_hvh,
-      # the None are place holders, saying that
-      # chain_start is the initial state corresponding to the
-      # 6th output
-      outputs_info=[None, None, None, None, None, chain_start],
-      n_steps=k
-    )
-    # start-snippet-3
-    # determine gradients on RBM parameters
-    # note that we only need the sample at the end of the chain
-    chain_end = nv_samples[-1]
-    chain_end_hidden = nh_samples[-1]
-
-    cost = T.mean(self.free_energy(self.input)) - T.mean(
-      self.free_energy(chain_end)) + self.c * self.loss(chain_end_hidden, self.label)
+    cost = self.c * self.loss(self.input, self.label)
     # We must not compute the gradient through the gibbs sampling
-    gparams = T.grad(cost, self.params, consider_constant=[chain_end, chain_end_hidden])
+    gparams = T.grad(cost, self.params)
     # end-snippet-3 start-snippet-4
     if update_method == 'sgd':
       # constructs the update dictionary
@@ -321,17 +275,9 @@ class RBM(object):
         updates[param] = param - gparam * T.cast(lr,     \
                             dtype=theano.config.floatX)  \
                             / (1e-4 + T.sqrt(g2 + gparam * gparam))
-    if persistent:
-      # Note that this works only if persistent is a shared variable
-      updates[persistent] = nh_samples[-1]
-      # pseudo-likelihood is a better proxy for PCD
-      monitoring_cost = self.get_pseudo_likelihood_cost(updates)
-    else:
-      # reconstruction cross-entropy is a better proxy for CD
-      monitoring_cost = self.get_reconstruction_cost(updates,
-                               pre_sigmoid_nvs[-1])
 
-    train_err = self.get_error(nh_means[-1], self.label)
+    monitoring_cost = 0
+    train_err = 0
     return monitoring_cost, train_err, updates
     # end-snippet-4
 
