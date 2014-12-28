@@ -218,6 +218,9 @@ class AutoEncoder(object):
   """
   def __init__(me, arch, batchsize = 1, num_sample = 1, kappa = 1, sigma = 1, 
                     stepsize=0.1, num_label=2, ell=10, c = 1, v = 1):
+
+    if os.environ.has_key('hidden'):
+      arch[1] = int(os.environ['hidden'])
     me.num_threads = num_threads
     printBlue('> Thread Pool (%d)' % me.num_threads)
     me.kappa = kappa
@@ -229,11 +232,23 @@ class AutoEncoder(object):
     me.rmodel = Encoder(arch, sigma=sigma)
 
     me.ell = ell
+    me.c = c
     me.num_label = num_label
     me.W = np.zeros((sum(arch[1:])+1, me.num_label))
     me.W_G2 = np.zeros_like(me.W)
-    me.c = c
-    me.v = 1
+
+    if os.environ.has_key('ell'):
+      me.ell = float(os.environ['ell'])
+    if os.environ.has_key('c'):
+      me.c = float(os.environ['c'])
+    if os.environ.has_key('kappa'):
+      me.kappa = float(os.environ['kappa'])
+    if os.environ.has_key('sigma'):
+      me.sigma = float(os.environ['sigma'])
+    if os.environ.has_key('stepsize'):
+      me.stepsize = float(os.environ['stepsize'])
+    print 'ell = ', me.ell, 'c = ', me.c, 'sigma = ', me.sigma, 'kappa = ', me.kappa, \
+          'stepsize = ', me.stepsize, 'arch = ', arch
 
   def __concat__(me, xi):
     latent = [1]
@@ -396,8 +411,9 @@ class AutoEncoder(object):
 
         if it % 10 == 0:
           os.system('mkdir -p %s' % output_path)
-          sio.savemat('%s/recon.mat' % output_path, {'recon': recon, 'xi': xi, 'data':test_data, \
-          'recon_train':recon_train, 'lhood':lhood, 'test_lhood':test_lhood, 'recon_err':recon_err, 'test_acc':accuracy})
+          sio.savemat('%s/recon.mat' % output_path, {'recon': recon, 'xi': xi, 'xi_train':xi_train, 'data':test_data, 
+                      'recon_train':recon_train, 'lhood':lhood, 'test_lhood':test_lhood, 'recon_err':recon_err, 
+                      'recon_train_err':recon_train_err, 'test_acc':accuracy})
 
 
     printBlue('> Training complete')

@@ -39,9 +39,9 @@ def run_full(hidden, kappa, sigma, c, stepsize):
   os.system('mkdir -p ../result/%s' % output_path)
   model = AutoEncoder([784, hidden], num_sample=1, batchsize=512, kappa=kappa, sigma=sigma, stepsize=stepsize,\
                         num_label=10, c = c, ell=10)
-  model.train(train_data, train_label, 500, test_data = test_data, test_label = test_label)
+  model.train(train_data, train_label, 500, test_data = test_data, test_label = test_label, output_path=output_path)
 
-def run_tiny(hidden, kappa, sigma, c, stepsize):
+def run_tiny(hidden = 50, kappa = 0, sigma = 0, c = 0, stepsize = 0.01):
   mat = sio.loadmat('../data/mnist/mnistTiny.mat')
   train_data = np.array(toFloat(mat['trainData']))   # binarize.
   train_label = np.argmax(np.array(mat['trainLabels']), axis=1)
@@ -52,6 +52,6 @@ def run_tiny(hidden, kappa, sigma, c, stepsize):
                         num_label=10, c = c, ell=10)
   model.train(train_data, train_label, 500, test_data = test_data, test_label = test_label)
 
-# run_tiny(int(sys.argv[1]), float(sys.argv[2]), float(sys.argv[3]), float(sys.argv[4]), 0.01)
-run_full(int(sys.argv[1]), float(sys.argv[2]), float(sys.argv[3]), float(sys.argv[4]), 0.01)
+run_tiny()
+# run_full(int(sys.argv[1]), float(sys.argv[2]), float(sys.argv[3]), float(sys.argv[4]), 0.01)
 
