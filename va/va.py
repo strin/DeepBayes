@@ -217,7 +217,7 @@ class AutoEncoder(object):
     train/test DLGM on datasets.
   """
   def __init__(me, arch, batchsize = 1, num_sample = 1, kappa = 1, sigma = 1, 
-                    stepsize=0.1, num_label=2, ell=10, c = 1, v = 1):
+                    stepsize=0.1, num_label=2, ell=100, c = 1, v = 1):
     me.num_threads = num_threads
     printBlue('> Thread Pool (%d)' % me.num_threads)
     me.kappa = kappa

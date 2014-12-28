@@ -8,9 +8,9 @@ import matplotlib.pyplot as plt
 toFloat = np.vectorize(float)
 
 mat = sio.loadmat('../data/mnist/mnistTiny.mat')
-train_data = np.array(toFloat(mat['trainData'] > 0.5))   # binarize.
+train_data = np.array(mat['trainData'])   # binarize.
 train_label = np.argmax(np.array(mat['trainLabels']), axis=1)
-test_data = np.array(toFloat(mat['testData'] > 0.5))     # binarize.
+test_data = np.array(mat['testData'])     # binarize.
 test_label = np.argmax(np.array(mat['testLabels']), axis=1)
 
 batchsize = 32
