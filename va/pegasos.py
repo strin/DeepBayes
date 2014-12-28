@@ -8,15 +8,18 @@ import matplotlib.pyplot as plt
 toFloat = np.vectorize(float)
 
 mat = sio.loadmat('../data/mnist/mnistTiny.mat')
-train_data = np.array(mat['trainData'])   # binarize.
+result = sio.loadmat('result.mat')
+# train_data = np.array(mat['trainData'])   
+train_data =  result['xi_train'].T
 train_label = np.argmax(np.array(mat['trainLabels']), axis=1)
-test_data = np.array(mat['testData'])     # binarize.
+# test_data = np.array(mat['testData'])     
+test_data = result['xi'].T
 test_label = np.argmax(np.array(mat['testLabels']), axis=1)
 
 batchsize = 32
 num_iter = 10000
 D = train_data.shape[1]
-eta = 1
+eta = 0.01
 
 W = npr.randn(D, 10)
 G2 = np.zeros_like(W)

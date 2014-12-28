@@ -32,6 +32,15 @@ toStr = np.vectorize(str)
 get_value = lambda x: x.get_value() if x != None else None
 get_value_all = lambda xs: [get_value(x) for x in xs]
 
+nonlinear_f = lambda x : ts.log(1+ts.exp(x))  # smooth ReLU.
+nonlinear_s = "smooth ReLU"
+if os.environ.has_key('nonlinear'):
+  nonlinear_s = os.environ['nonlinear']
+  if nonlinear_s == "ReLU":
+    f = lambda x : ts.maximum(0, x) # ReLU.
+  if nonlinear_s == "tanh":
+    f = lambda x : ts.tanh(x)
+
 def AdaGRAD(param, grad, G2, stepsize):
   """
   adaptive sub-gradient algorithm for tensor-shared objects.
@@ -80,8 +89,26 @@ class Decoder:
                [W1, b1], 
                lambda v : (v * ts.log(ts.logistic(resp)) + (1-v) * ts.log(1-ts.logistic(resp))).sum()
              )
+
+    def two_layer_logistic(h):
+      """
+      two-layer network for decoding
+      """
+      hidden = 100
+      W1 = theano.shared(randn01(hidden, arch[1]), name="W1")
+      b1 = theano.shared(np.zeros((hidden, 1)), name="b1", broadcastable=(False,True))
+      W2 = theano.shared(randn01(arch[0], hidden), name="W2")
+      b2 = theano.shared(np.zeros((arch[0], 1)), name="b2", broadcastable=(False,True))
+      u = nonlinear_f(ts.dot(W1, h) + b1)
+      resp = ts.dot(W2, u) + b2
+      return ( resp,
+               [W1, b1, W2, b2], 
+               lambda v : (v * ts.log(ts.logistic(resp)) + (1-v) * ts.log(1-ts.logistic(resp))).sum()
+             )
     
     (me.resp, me.param, me.lhoodFunc) = one_layer_logistic(me.h)
+    #(me.resp, me.param, me.lhoodFunc) = two_layer_logistic(me.h)
+
     me.param += [me.G]
     me.G2 = [np.zeros(x.get_value().shape) for x in me.param] # variance of gradient.
 
@@ -150,14 +177,14 @@ class Encoder:
     me.v = ts.matrix("v")
 
     def two_layer_recognition(v):
-      num_hidden = 100
+      num_hidden = me.arch[1]
       Wv = theano.shared(randn01(num_hidden, arch[0]), name="Wv")
       bv = theano.shared(np.zeros((num_hidden, 1)), name="bv", broadcastable=(False,True))
       Wmu = theano.shared(randn01(arch[1], num_hidden), name="Wmu")
       bmu = theano.shared(np.zeros((arch[1], 1)), name="bmu", broadcastable=(False, True))
       Wd = theano.shared(randn01(arch[1], num_hidden), name="Wd")
       bd = theano.shared(np.zeros((arch[1], 1)), name="bd", broadcastable=(False, True))
-      z =  ts.maximum(0, ts.dot(Wv, v) + bv)
+      z =  nonlinear_f(ts.dot(Wv, v) + bv)
       d = ts.exp(ts.dot(Wd, z) + bd)
       mu = ts.dot(Wmu, z) + bmu
       xs = ts.matrix('x')
@@ -176,7 +203,7 @@ class Encoder:
     "free energy and gradients."
     me.energy = 0;
     for layer in range(1, me.num_layers):
-      me.energy += .5 * me.sigma * (me.mu * me.mu).sum() + ts.sum(1/me.d) + ts.sum(ts.log(me.d))
+      me.energy += .5 * me.sigma * ((me.mu * me.mu).sum() + ts.sum(1/me.d) + ts.sum(ts.log(me.d)))
     me.get_energy = theano.function([me.v], me.energy)
     me.gradient = ts.grad(me.energy, me.param)
     me.get_grad = theano.function([me.v], me.gradient)
@@ -245,8 +272,12 @@ class AutoEncoder(object):
       me.sigma = float(os.environ['sigma'])
     if os.environ.has_key('stepsize'):
       me.stepsize = float(os.environ['stepsize'])
+    me.stepsize_w = me.stepsize
+    if os.environ.has_key('stepsize_w'):
+      me.stepsize_w = float(os.environ['stepsize_w'])
     print 'ell = ', me.ell, 'c = ', me.c, 'sigma = ', me.sigma, 'kappa = ', me.kappa, \
           'stepsize = ', me.stepsize, 'arch = ', me.arch
+    print 'nonlinear_f = ', nonlinear_s
 
     printBlue('> Compiling neural network')
     me.W = np.zeros((sum(me.arch[1:])+1, me.num_label))
@@ -261,7 +292,7 @@ class AutoEncoder(object):
     latent = np.array(latent)
     return latent
 
-  def process(me, ti, V, Y = None):
+  def process(me, ti, V, Y = []):
     """
       process one single data point.
         > return: (grad of generative model, grad of recognition model)
@@ -289,7 +320,6 @@ class AutoEncoder(object):
 
       "compute gradient of regularizer in generative model."
       gg_reg = gmodel.get_grad_reg()
-      gg_reg = param_mul_scalar(gg_reg, me.kappa)
       grad_g = param_add(grad_g, gg_reg)
 
       "compute free-energy gradient of recognition model."
@@ -300,7 +330,7 @@ class AutoEncoder(object):
       gg_xi = gmodel.get_grad_xi(V, xi)
 
       "add supervision"
-      if Y != None:
+      if Y != []:
         # latents = rmodel.get_mu(V)
         latents = xi
         for (ni, (y, latent)) in enumerate(zip(Y, latents.T)):
@@ -352,7 +382,7 @@ class AutoEncoder(object):
     recon = me.gmodel.activate(xi).T
     return (recon, xi)
       
-  def train(me, data, label, num_iter, test_data = None, test_label = None, output_path = '.'):
+  def train(me, data, label, num_iter, test_data = [], test_label = [], output_path = '.'):
     """
       start the training algorithm.
         > input
@@ -365,6 +395,7 @@ class AutoEncoder(object):
     test_lhood = []
     recon_err = []
     test_recon_err = []
+    train_recon_err = []
     accuracy = []
 
     for it in range(num_iter):
@@ -396,10 +427,10 @@ class AutoEncoder(object):
         "aggregate gradients"
         AdaGRAD(me.gmodel.param, grad_g, me.gmodel.G2, me.stepsize)
         AdaGRAD(me.rmodel.param, grad_r, me.rmodel.G2, me.stepsize)
-        AdaGRAD([me.W], [grad_w], [me.W_G2], me.stepsize)
+        AdaGRAD([me.W], [grad_w], [me.W_G2], me.stepsize_w)
 
       "evaluate"
-      if test_data != None:
+      if test_data != [] and (it+1) % 10 == 0:
         [predict, acc] = me.test(test_data, test_label)
         accuracy += [acc]
         # print '\tGenerative Model', me.gmodel.pack()
@@ -409,19 +440,23 @@ class AutoEncoder(object):
 
         test_lhood += [me.neg_lhood(test_data)]
         lhood += [me.neg_lhood(data)]
-        print 'epoch = ', it, '-lhood', test_lhood[-1], '-lhood(train)', lhood[-1], 'test recon err', recon_err[-1], 'test acc', acc
 
         (recon_train, xi_train) = me.reconstruct(data)
-        recon_train_err = np.abs(recon_train - data).sum() / float(data.shape[0]) / float(data.shape[1])
+        train_recon_err += [np.abs(recon_train - data).sum() / float(data.shape[0]) / float(data.shape[1])]
 
-        if it % 10 == 0:
-          os.system('mkdir -p %s' % output_path)
-          sio.savemat('%s/recon.mat' % output_path, {'recon': recon, 'xi': xi, 'xi_train':xi_train, 'data':test_data, 
-                      'recon_train':recon_train, 'lhood':lhood, 'test_lhood':test_lhood, 'recon_err':recon_err, 
-                      'recon_train_err':recon_train_err, 'test_acc':accuracy})
+        print 'epoch = ', it, '-lhood', test_lhood[-1], '-lhood(train)', lhood[-1], 'test recon err', \
+            recon_err[-1], 'train recon err', train_recon_err[-1], 'test acc', acc
+
+        os.system('mkdir -p %s' % output_path)
+        sio.savemat('%s/recon.mat' % output_path, {'recon': recon, 'xi': xi, 'xi_train':xi_train, 'data':test_data, 
+                    'recon_train':recon_train, 'lhood':lhood, 'test_lhood':test_lhood, 'recon_err':recon_err, 
+                    'train_recon_err':train_recon_err, 'test_acc':accuracy})
+
     with open('log.txt', "a") as output:
+      output.write('\n')
       output.write(' '.join(toStr(['ell = ', me.ell, 'c = ', me.c, 'sigma = ', me.sigma, 'kappa = ', me.kappa, \
                     'stepsize = ', me.stepsize, 'arch = ', me.arch[0], me.arch[1]]))+'\n')
+      output.write(' '.join(toStr(['nonlinear_f = ', nonlinear_s]))+'\n')
       output.write(' '.join(toStr(['epoch = ', it, '-lhood', test_lhood[-1], '-lhood(train)', lhood[-1],  
                     'test recon err', recon_err[-1], 'test acc', acc]))+'\n')
       output.flush()
