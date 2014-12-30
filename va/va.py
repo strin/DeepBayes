@@ -103,7 +103,7 @@ class Decoder:
       resp = ts.dot(W2, u) + b2
       return ( resp,
                [W1, b1, W2, b2], 
-               lambda v : (v * ts.log(ts.logistic(resp)) + (1-v) * ts.log(1-ts.logistic(resp))).sum()
+               lambda v : (v * ts.log(ts.logistic(resp)) + (1-v) * ts.log(1-ts.logistic(resp))).sum(),
              )
     
     (me.resp, me.param, me.lhoodFunc) = one_layer_logistic(me.h)
@@ -177,7 +177,7 @@ class Encoder:
     me.v = ts.matrix("v")
 
     def two_layer_recognition(v):
-      num_hidden = me.arch[1]
+      num_hidden = 4 * me.arch[1]
       Wv = theano.shared(randn01(num_hidden, arch[0]), name="Wv")
       bv = theano.shared(np.zeros((num_hidden, 1)), name="bv", broadcastable=(False,True))
       Wmu = theano.shared(randn01(arch[1], num_hidden), name="Wmu")
@@ -191,11 +191,12 @@ class Encoder:
       return (mu, 
               d,
               [Wv, bv, Wmu, bmu, Wd, bd], 
-              theano.function([v, xs], mu + 1/ts.sqrt(d) * xs)
+              theano.function([v, xs], mu + 1/ts.sqrt(d) * xs),
+              theano.function([v], z)
              )
 
     me.sample_eps = lambda V: npr.normal(0, 1, (arch[1], V.shape[1]))
-    (me.mu, me.d, me.param, me.sample) = two_layer_recognition(me.v)
+    (me.mu, me.d, me.param, me.sample, me.propup) = two_layer_recognition(me.v)
     me.G2 = [np.zeros(x.get_value().shape) for x in me.param] # variance of gradient.
     me.get_mu = theano.function([me.v], me.mu)
     me.get_d = theano.function([me.v], me.d)
@@ -284,7 +285,7 @@ class AutoEncoder(object):
     print 'nonlinear_f = ', nonlinear_s
 
     printBlue('> Compiling neural network')
-    me.W = np.zeros((sum(me.arch[1:])+1, me.num_label))
+    me.W = np.zeros((4 * arch[1] + 1, me.num_label))
     me.W_G2 = np.zeros_like(me.W)
     me.gmodel = Decoder(me.arch, kappa=me.kappa)
     me.rmodel = Encoder(me.arch, sigma=me.sigma)
@@ -336,7 +337,8 @@ class AutoEncoder(object):
       "add supervision"
       if Y != []:
         # latents = rmodel.get_mu(V)
-        latents = xi
+        # latents = xi
+        latents = rmodel.propup(V)
         for (ni, (y, latent)) in enumerate(zip(Y, latents.T)):
           latent = me.__concat__(latent)
           resp = me.ell + np.dot(latent, me.W) - np.dot(latent, me.W[:,y])
@@ -345,7 +347,7 @@ class AutoEncoder(object):
           grad_w[:,yp] += latent
           grad_w[:,y] -= latent
 
-          gg_xi[:, ni] -= me.c * (me.W[1:, yp] - me.W[1:, y])
+          # gg_xi[:, ni] -= me.c * (me.W[1:, yp] - me.W[1:, y])
 
       gr_stoc = rmodel.get_stoc_grad(V, gg_xi, eps)
       grad_r = param_add(grad_r, gr_stoc)
@@ -367,7 +369,8 @@ class AutoEncoder(object):
     acc = 0
     # eps = me.rmodel.sample_eps(data.T)
     # xi = me.rmodel.sample(data.T, eps).T        # use posterior mean to make predictions.
-    xi = me.rmodel.get_mu(data.T).T
+    # xi = me.rmodel.get_mu(data.T).T
+    xi = me.rmodel.propup(data.T).T
     for (v, lb, x) in zip(data, label, xi):
       # eps = me.rmodel.sample_eps(v)
       # xi = me.rmodel.sample(v, eps)
@@ -404,6 +407,8 @@ class AutoEncoder(object):
     train_recon_err = []
     accuracy = []
 
+    LAG = 10
+    ta = time.time()
     for it in range(num_iter):
       allind = set(range(data.shape[0]))
       while len(allind) >= me.batchsize:
@@ -436,7 +441,8 @@ class AutoEncoder(object):
         AdaGRAD([me.W], [grad_w], [me.W_G2], me.stepsize_w)
 
       "evaluate"
-      if test_data != [] and (it+1) % 10 == 0:
+      if test_data != [] and (it+1) % LAG == 0:
+        tb = time.time()
         [predict, acc] = me.test(test_data, test_label)
         accuracy += [acc]
         # print '\tGenerative Model', me.gmodel.pack()
@@ -450,12 +456,15 @@ class AutoEncoder(object):
         (recon_train, xi_train) = me.reconstruct(data)
         train_recon_err += [np.abs(recon_train - data).sum() / float(data.shape[0]) / float(data.shape[1])]
 
-        print 'epoch = ', it, '-lhood', test_lhood[-1], '-lhood(train)', lhood[-1], 'test recon err', \
+        time_elapsed = (tb-ta) / float(LAG)
+        print 'epoch = ', it, 'time elapsed = ', time_elapsed, '-lhood', test_lhood[-1], '-lhood(train)', lhood[-1], 'test recon err', \
             recon_err[-1], 'train recon err', train_recon_err[-1], 'test acc', acc
 
         sio.savemat('../result/%s/recon.mat' % me.output_path, {'recon': recon, 'xi': xi, 'xi_train':xi_train, 'data':test_data, 
                     'recon_train':recon_train, 'lhood':lhood, 'test_lhood':test_lhood, 'recon_err':recon_err, 
-                    'train_recon_err':train_recon_err, 'test_acc':accuracy})
+                    'train_recon_err':train_recon_err, 'test_acc':accuracy, 'time_elapsed':time_elapsed})
+
+        ta = time.time()
 
     with open('../result/%s/log.txt' % me.output_path, "a") as output:
       output.write('\n')
