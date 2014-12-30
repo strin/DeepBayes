@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 
 toFloat = np.vectorize(float)
 
-mat = sio.loadmat('../data/mnist/mnistTiny.mat')
+mat = sio.loadmat('../data/mnist/mnist.mat')
 result = sio.loadmat('result.mat')
 # train_data = np.array(mat['trainData'])   
 train_data =  result['xi_train'].T
