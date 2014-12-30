@@ -275,6 +275,10 @@ class AutoEncoder(object):
     me.stepsize_w = me.stepsize
     if os.environ.has_key('stepsize_w'):
       me.stepsize_w = float(os.environ['stepsize_w'])
+    if os.environ.has_key('output'):
+      me.output_path = os.environ['output']
+    else:
+      me.output_path = 'default'
     print 'ell = ', me.ell, 'c = ', me.c, 'sigma = ', me.sigma, 'kappa = ', me.kappa, \
           'stepsize = ', me.stepsize, 'arch = ', me.arch
     print 'nonlinear_f = ', nonlinear_s
@@ -382,13 +386,15 @@ class AutoEncoder(object):
     recon = me.gmodel.activate(xi).T
     return (recon, xi)
       
-  def train(me, data, label, num_iter, test_data = [], test_label = [], output_path = '.'):
+  def train(me, data, label, num_iter, test_data = [], test_label = []):
     """
       start the training algorithm.
         > input
           data: N x D data matrix, each row is a data of dimension D.
     """
     printBlue('> Start training neural nets')
+
+    os.system('mkdir -p ../result/%s' % me.output_path)
 
     data = np.array(data)
     lhood = []
@@ -447,12 +453,11 @@ class AutoEncoder(object):
         print 'epoch = ', it, '-lhood', test_lhood[-1], '-lhood(train)', lhood[-1], 'test recon err', \
             recon_err[-1], 'train recon err', train_recon_err[-1], 'test acc', acc
 
-        os.system('mkdir -p %s' % output_path)
-        sio.savemat('%s/recon.mat' % output_path, {'recon': recon, 'xi': xi, 'xi_train':xi_train, 'data':test_data, 
+        sio.savemat('../result/%s/recon.mat' % me.output_path, {'recon': recon, 'xi': xi, 'xi_train':xi_train, 'data':test_data, 
                     'recon_train':recon_train, 'lhood':lhood, 'test_lhood':test_lhood, 'recon_err':recon_err, 
                     'train_recon_err':train_recon_err, 'test_acc':accuracy})
 
-    with open('log.txt', "a") as output:
+    with open('../result/%s/log.txt' % me.output_path, "a") as output:
       output.write('\n')
       output.write(' '.join(toStr(['ell = ', me.ell, 'c = ', me.c, 'sigma = ', me.sigma, 'kappa = ', me.kappa, \
                     'stepsize = ', me.stepsize, 'arch = ', me.arch[0], me.arch[1]]))+'\n')
