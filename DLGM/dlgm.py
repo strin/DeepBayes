@@ -239,22 +239,51 @@ class DeepLatentGM(object):
   """
   def __init__(me, arch, batchsize = 1, num_sample = 1, kappa = 1, sigma = 1, rec_hidden = 100, 
                     stepsize=0.1, num_label=2, ell=100, c = 1, v = 1):
+    if os.environ.has_key('hidden'):
+      hidden = int(os.environ['hidden'])
+      rec_hidden = hidden
+      for i in range(1, len(arch)):
+        arch[i] = hidden 
     me.num_threads = num_threads
     printBlue('> Thread Pool (%d)' % me.num_threads)
+
+    me.arch = arch
     me.kappa = kappa
+    me.sigma = sigma
     me.batchsize = batchsize
     me.stepsize = stepsize
     me.num_sample = num_sample
-    printBlue('> Compiling neural network')
-    me.gmodel = GenerativeModel(arch, kappa=kappa)
-    me.rmodel = RecognitionModel(arch, num_hidden=rec_hidden, sigma=sigma)
 
     me.ell = ell
+    me.c = c
     me.num_label = num_label
+    me.v = 1
+
+    if os.environ.has_key('ell'):
+      me.ell = float(os.environ['ell'])
+    if os.environ.has_key('c'):
+      me.c = float(os.environ['c'])
+    if os.environ.has_key('kappa'):
+      me.kappa = float(os.environ['kappa'])
+    if os.environ.has_key('sigma'):
+      me.sigma = float(os.environ['sigma'])
+    if os.environ.has_key('stepsize'):
+      me.stepsize = float(os.environ['stepsize'])
+    me.stepsize_w = me.stepsize
+    if os.environ.has_key('stepsize_w'):
+      me.stepsize_w = float(os.environ['stepsize_w'])
+    if os.environ.has_key('output'):
+      me.output_path = os.environ['output']
+    else:
+      me.output_path = 'default'
+
+    print 'ell = ', me.ell, 'c = ', me.c, 'sigma = ', me.sigma, 'kappa = ', me.kappa, \
+    printBlue('> Compiling neural network')
+    me.gmodel = GenerativeModel(me.arch, kappa=me.kappa)
+    me.rmodel = RecognitionModel(me.arch, num_hidden=rec_hidden, sigma=me.sigma)
+
     me.W = np.zeros((sum(arch[1:])+1, me.num_label))
     me.W_G2 = np.zeros_like(me.W)
-    me.c = c
-    me.v = 1
 
   def __concat__(me, xi):
     latent = [1]
@@ -365,13 +394,15 @@ class DeepLatentGM(object):
     recon = me.gmodel.activate(xi).T
     return (recon, xi)
       
-  def train(me, data, label, num_iter, test_data = [], test_label = [], output_path = '.'):
+  def train(me, data, label, num_iter, test_data = [], test_label = []):
     """
       start the training algorithm.
         > input
           data: N x D data matrix, each row is a data of dimension D.
     """
     printBlue('> Start training neural nets')
+
+    os.system('mkdir -p ../result/%s' % me.output_path)
 
     data = np.array(data)
     lhood = []
@@ -380,6 +411,8 @@ class DeepLatentGM(object):
     train_recon_err = []
     accuracy = []
 
+    LAG = 10
+    ta = time.time()
     for it in range(num_iter):
       allind = set(range(data.shape[0]))
       while len(allind) >= me.batchsize:
@@ -412,7 +445,8 @@ class DeepLatentGM(object):
         AdaGRAD([me.W], [grad_w], [me.W_G2], me.stepsize)
 
       "evaluate"
-      if test_data != []:
+      if test_data != [] and (it+1) % LAG == 0:
+        tb = time.time()
         [predict, acc] = me.test(test_data, test_label)
         accuracy += [acc]
         # print '\tGenerative Model', me.gmodel.pack()
@@ -427,12 +461,23 @@ class DeepLatentGM(object):
         recon_train = me.reconstruct(data)
         train_recon_err += [np.abs(recon_train - data).sum() / float(data.shape[0]) / float(data.shape[1])]
 
-        if it % 10 == 0:
-          os.system('mkdir -p %s' % output_path)
-          sio.savemat('%s/recon.mat' % output_path, {'recon': recon, 'xi': xis, 'data':test_data, \
-          'recon_train':recon_train, 'lhood':lhood, 'test_lhood':test_lhood, 'recon_err':recon_err, 'test_acc':accuracy})
+        time_elapsed = (tb-ta) / float(LAG)
+
+        print 'epoch = ', it, 'time elapsed = ', time_elapsed, '-lhood', test_lhood[-1], '-lhood(train)', lhood[-1], 'test recon err', \
+            recon_err[-1], 'train recon err', train_recon_err[-1], 'test acc', acc
+
+        sio.savemat('../result/%s/recon.mat' % me.output_path, {'recon': recon, 'xi': xis, 'xi_train':xi_train, 'data':test_data, 
+                    'recon_train':recon_train, 'lhood':lhood, 'test_lhood':test_lhood, 'recon_err':recon_err, 
+                    'train_recon_err':train_recon_err, 'test_acc':accuracy, 'time_elapsed':time_elapsed,
+                    'rmodel':me.rmodel.pack(), 'gmodel':me.gmodel.pack()})
 
 
+    with open('../result/%s/log.txt' % me.output_path, "a") as output:
+        print >>output, 'epoch = ', it, 'time elapsed = ', time_elapsed, '-lhood', test_lhood[-1], '-lhood(train)', lhood[-1], 'test recon err', \
+            recon_err[-1], 'train recon err', train_recon_err[-1], 'test acc', acc
+        output.flush()
+        output.close()
+      
     printBlue('> Training complete')
 
 if __name__ == "__main__":

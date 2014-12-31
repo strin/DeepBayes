@@ -28,18 +28,20 @@ def run(hidden, kappa, sigma, stepsize):
                         num_label=10)
   model.train(train_data, train_label, 500, test_data = test_data, test_label = test_label, output_path=output_path)
 
-def run_full(hidden, kappa, sigma, stepsize):
+def run_full():
   mat = pickle.load(gzip.open('../data/mnist/mnist.pkl.gz', 'rb'))
   train_data = np.array(list(mat[0][0]) + list(mat[1][0]))
   train_label = np.array(list(mat[0][1]) + list(mat[1][1]))
   test_data = mat[2][0]
   test_label = mat[2][1]
+  hidden = 100
+  sigma = 0.001
+  kappa = 0.1
+  stepsize = 0.01
 
-  output_path = '../result/hidden_%d_kappa_%f_sigma_%f' % (hidden, kappa, sigma)
-  os.system('mkdir -p ../result/%s' % output_path)
-  model = DeepLatentGM([784, hidden, hidden], batchsize=128, kappa=kappa, sigma=sigma, rec_hidden=hidden, stepsize=stepsize,\
+  model = DeepLatentGM([784, hidden, hidden], batchsize=64, kappa=kappa, sigma=sigma, rec_hidden=hidden, stepsize=stepsize,\
                         num_label=10)
-  model.train(train_data, train_label, 500, test_data = test_data, test_label = test_label, output_path=output_path)
+  model.train(train_data, train_label, 500, test_data = test_data, test_label = test_label)
 
 def run_tiny():
   mat = sio.loadmat('../data/mnist/mnistTiny.mat')
@@ -52,5 +54,5 @@ def run_tiny():
                         num_label=10, c = 10)
   model.train(train_data, train_label, 500, test_data = test_data, test_label = test_label)
 
-run_full(int(sys.argv[1]), float(sys.argv[2]), float(sys.argv[3]), 0.01)
+run_full()
 
