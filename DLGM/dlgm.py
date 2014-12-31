@@ -82,7 +82,7 @@ class GenerativeModel:
         me.h[layer] += ts.dot(me.W[layer], me.f(0, me.h[layer+1])) + me.b[layer]
 
     me.param = me.G[1:] + me.W[:-1] + me.b[:-1]
-    me.G2 = [np.zeros(x.get_value().shape) for x in me.param] # variance of gradient.
+    me.G2 = [np.asarray(np.zeros(x.get_value().shape), config.floatX) for x in me.param] # variance of gradient.
 
     "define objective."
     me.v = ts.matrix("v")
@@ -204,7 +204,7 @@ class RecognitionModel:
 
     "free energy gradients."
     me.param = me.Wv[1:] + me.Wu[1:] + me.Wd[1:] + me.Wmu[1:] + me.bv[1:] + me.bu[1:] + me.bd[1:]+ me.bmu[1:]
-    me.G2 = [np.zeros(x.get_value().shape) for x in me.param] # variance of gradient.
+    me.G2 = [np.asarray(np.zeros(x.get_value().shape), config.floatX) for x in me.param] # variance of gradient.
     me.gradient = ts.grad(me.energy, me.param)
     me.get_grad = theano.function([me.v], me.gradient)
    
