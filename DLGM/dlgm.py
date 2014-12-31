@@ -8,6 +8,7 @@ including
 imports = ['import numpy as np', 
            'import numpy.random as npr', 
            'import theano',
+           'from theano import config',
            'import sys, os',
            'import scipy.io as sio', 
            'import theano.sandbox.linalg as ta',
@@ -25,7 +26,10 @@ theano.config.exception_verbosity = 'low'
 
 ts.logistic = lambda z: 1 / (1 + ts.exp(-z)) 
 np.logistic = lambda z: 1 / (1 + np.exp(-z))
+
 toInt = np.vectorize(int)
+toStr = np.vectorize(str)
+strConcat = lambda ls : '  '.join(toStr(ls))
 
 get_value = lambda x: x.get_value() if x != None else None
 get_value_all = lambda xs: [get_value(x) for x in xs]
@@ -67,11 +71,11 @@ class GenerativeModel:
     (me.G, me.W, me.b, me.xi, me.h) = tuple([[None]*(me.num_layers) for i in range(5)])
     for layer in range(me.num_layers-1, -1, -1):
       if layer < me.num_layers-1:
-        me.W[layer] = theano.shared(randn01(arch[layer], arch[layer+1]), name="W%d" % layer)
-        me.b[layer] = theano.shared(np.zeros((arch[layer], 1)), name="b%d" % layer, broadcastable=(False,True))
+        me.W[layer] = theano.shared(np.asarray(randn01(arch[layer], arch[layer+1]), config.floatX), name="W%d" % layer)
+        me.b[layer] = theano.shared(np.asarray(np.zeros((arch[layer], 1)), config.floatX), name="b%d" % layer, broadcastable=(False,True))
       me.h[layer] = 0
       if layer > 0:
-        me.G[layer] = theano.shared(np.eye(arch[layer]), name="G%d" % layer)
+        me.G[layer] = theano.shared(np.asarray(np.eye(arch[layer]), config.floatX), name="G%d" % layer)
         me.xi[layer] = ts.matrix("xi%d" % layer)
         me.h[layer] += ts.dot(me.G[layer], me.xi[layer])
       if layer < me.num_layers-1:
@@ -145,14 +149,14 @@ class RecognitionModel:
     (me.Wv, me.Wu, me.Wd, me.Wmu, me.bv, me.bu, me.bd, me.bmu, me.z, me.d, me.u, me.mu, me.R, me.C) \
         = tuple([[None] * me.num_layers for i in range(14)])
     for layer in range(1, me.num_layers):
-      me.Wv[layer] = theano.shared(randn01(num_hidden, arch[0]), name="Wv%d" % layer)
-      me.Wu[layer] = theano.shared(randn01(arch[layer], num_hidden), name="Wu%d" % layer)
-      me.Wd[layer] = theano.shared(randn01(arch[layer], num_hidden), name="Wd%d" % layer)
-      me.Wmu[layer] = theano.shared(randn01(arch[layer], num_hidden), name="Wmu%d" % layer)
-      me.bv[layer] = theano.shared(np.zeros((num_hidden, 1)), name="bv%d" % layer, broadcastable=(False, True))
-      me.bu[layer] = theano.shared(np.zeros((arch[layer], 1)), name="bu%d" % layer, broadcastable=(False, True))
-      me.bd[layer] = theano.shared(np.zeros((arch[layer], 1)), name="bd%d" % layer, broadcastable=(False, True))
-      me.bmu[layer] = theano.shared(np.zeros((arch[layer], 1)), name="bmu%d" % layer, broadcastable=(False, True))
+      me.Wv[layer] = theano.shared(np.asarray(randn01(num_hidden, arch[0]), config.floatX), name="Wv%d" % layer)
+      me.Wu[layer] = theano.shared(np.asarray(randn01(arch[layer], num_hidden), config.floatX), name="Wu%d" % layer)
+      me.Wd[layer] = theano.shared(np.asarray(randn01(arch[layer], num_hidden), config.floatX), name="Wd%d" % layer)
+      me.Wmu[layer] = theano.shared(np.asarray(randn01(arch[layer], num_hidden), config.floatX), name="Wmu%d" % layer)
+      me.bv[layer] = theano.shared(np.asarray(np.zeros((num_hidden, 1)), config.floatX), name="bv%d" % layer, broadcastable=(False, True))
+      me.bu[layer] = theano.shared(np.asarray(np.zeros((arch[layer], 1)), config.floatX), name="bu%d" % layer, broadcastable=(False, True))
+      me.bd[layer] = theano.shared(np.asarray(np.zeros((arch[layer], 1)), config.floatX), name="bd%d" % layer, broadcastable=(False, True))
+      me.bmu[layer] = theano.shared(np.asarray(np.zeros((arch[layer], 1)), config.floatX), name="bmu%d" % layer, broadcastable=(False, True))
       me.z[layer] =  me.f(0, ts.dot(me.Wv[layer], me.v) + me.bv[layer])
       me.mu[layer] = ts.dot(me.Wmu[layer], me.z[layer]) + me.bmu[layer]
       me.d[layer] = ts.exp(ts.dot(me.Wd[layer], me.z[layer]) + me.bd[layer])
@@ -244,8 +248,6 @@ class DeepLatentGM(object):
       rec_hidden = hidden
       for i in range(1, len(arch)):
         arch[i] = hidden 
-    me.num_threads = num_threads
-    printBlue('> Thread Pool (%d)' % me.num_threads)
 
     me.arch = arch
     me.kappa = kappa
@@ -277,7 +279,8 @@ class DeepLatentGM(object):
     else:
       me.output_path = 'default'
 
-    print 'ell = ', me.ell, 'c = ', me.c, 'sigma = ', me.sigma, 'kappa = ', me.kappa, \
+    printRed(strConcat(['ell = ', me.ell, 'c = ', me.c, 'sigma = ', me.sigma, 'kappa = ', me.kappa, 
+                    'stepsize = ', me.stepsize, 'arch = ', strConcat(me.arch)]))
     printBlue('> Compiling neural network')
     me.gmodel = GenerativeModel(me.arch, kappa=me.kappa)
     me.rmodel = RecognitionModel(me.arch, num_hidden=rec_hidden, sigma=me.sigma)
@@ -404,7 +407,13 @@ class DeepLatentGM(object):
 
     os.system('mkdir -p ../result/%s' % me.output_path)
 
-    data = np.array(data)
+    data = np.array(data).astype(np.float32)
+    if test_data != []:
+      test_data = np.array(test_data).astype(np.float32)
+    label = label.astype(np.float32)
+    if test_label != []:
+      test_label = test_label.astype(np.float32)
+
     lhood = []
     test_lhood = []
     recon_err = []
