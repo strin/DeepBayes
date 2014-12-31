@@ -184,7 +184,7 @@ class RecognitionModel:
     me.get_d = theano.function([me.v], me.d[1:])
     me.get_z = theano.function([me.v], me.z[1:])
 
-    me.sample_eps = lambda v: [npr.randn(ac, v.shape[1]) \
+    me.sample_eps = lambda v: [np.asarray(npr.randn(ac, v.shape[1]), config.floatX) \
                                 for ac in arch[1:]]
 
     me.sample = lambda v, eps: param_add(me.get_mu(v), me.Rdot(v, *eps)) 

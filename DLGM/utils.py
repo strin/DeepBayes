@@ -2,6 +2,7 @@ import math
 import numpy as np
 import numpy.linalg as npla
 import numpy.random as npr
+from theano import config
 
 def param_op2(param, grad, op):
   for i in range(len(param)):
@@ -21,13 +22,13 @@ def param_add(param, grad):
 def param_mul_scalar(param, scalar):
   res = param
   for i in range(len(param)):
-    res[i] = param[i] * scalar
+    res[i] = param[i] * np.asarray(scalar, config.floatX)
   return res
 
 def param_neg(param):
   res = param
   for i in range(len(param)):
-    res[i] = -param[i]
+    res[i] = np.asarray(np.zeros(param[i].shape), config.floatX)-param[i]
   return res
 
 def randn01(*shape):
