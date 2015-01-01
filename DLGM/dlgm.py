@@ -34,6 +34,16 @@ strConcat = lambda ls : '  '.join(toStr(ls))
 get_value = lambda x: x.get_value() if x != None else None
 get_value_all = lambda xs: [get_value(x) for x in xs if x != None]
 
+nonlinear_f = lambda x : ts.log(1+ts.exp(x))  # smooth ReLU.
+nonlinear_s = "smooth ReLU"
+if os.environ.has_key('nonlinear'):
+  nonlinear_s = os.environ['nonlinear']
+  if nonlinear_s == "ReLU":
+    f = lambda x : ts.maximum(0, x) # ReLU.
+  if nonlinear_s == "tanh":
+    f = lambda x : ts.tanh(x)
+
+
 def AdaGRAD(param, grad, G2, stepsize):
   """
   adaptive sub-gradient algorithm for tensor-shared objects.
@@ -194,9 +204,8 @@ class RecognitionModel:
     "free energy."
     me.energy = 0;
     for layer in range(1, me.num_layers):
-      me.energy += me.sigma * (ts.sum(me.mu[layer] * me.mu[layer]) + ts.sum(1/me.d[layer])) \
-                    + 0 * ts.sum(me.u[layer] * me.u[layer]) \
-                    + ts.sum(ts.log(me.d[layer]))
+      me.energy += me.sigma * (ts.sum(me.mu[layer] * me.mu[layer]) + ts.sum(1/me.d[layer])+ ts.sum(ts.log(me.d[layer]))) \
+                    + 0 * ts.sum(me.u[layer] * me.u[layer]) 
     me.energy *= 0
     me.get_energy = theano.function([me.v], me.energy)
 
@@ -243,7 +252,7 @@ class DeepLatentGM(object):
                     stepsize=0.1, num_label=2, ell=100, c = 1, v = 1):
     if os.environ.has_key('hidden'):
       hidden = int(os.environ['hidden'])
-      rec_hidden = hidden
+      rec_hidden = 4 * hidden
       for i in range(1, len(arch)):
         arch[i] = hidden 
 
@@ -279,6 +288,7 @@ class DeepLatentGM(object):
 
     printRed(strConcat(['ell = ', me.ell, 'c = ', me.c, 'sigma = ', me.sigma, 'kappa = ', me.kappa, 
                     'stepsize = ', me.stepsize, 'arch = ', strConcat(me.arch)]))
+    printRed(strConcat(['nonlinear_f = ', nonlinear_s]))
     printBlue('> Compiling neural network')
     me.gmodel = GenerativeModel(me.arch, kappa=me.kappa)
     me.rmodel = RecognitionModel(me.arch, num_hidden=rec_hidden, sigma=me.sigma)
@@ -437,7 +447,7 @@ class DeepLatentGM(object):
         "aggregate gradients"
         AdaGRAD(me.gmodel.param, grad_g, me.gmodel.G2, me.stepsize)
         AdaGRAD(me.rmodel.param, grad_r, me.rmodel.G2, me.stepsize)
-        AdaGRAD([me.W], [grad_w], [me.W_G2], me.stepsize)
+        AdaGRAD([me.W], [grad_w], [me.W_G2], me.stepsize_w)
 
       "evaluate"
       if test_data != [] and (it+1) % LAG == 0:
