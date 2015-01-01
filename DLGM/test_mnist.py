@@ -50,9 +50,15 @@ def run_tiny():
   test_data = np.array(toFloat(mat['testData'] > 0.5))     # binarize.
   test_label = np.argmax(np.array(mat['testLabels']), axis=1)
 
-  model = DeepLatentGM([784, 200, 200, 200], batchsize=32, kappa=0.1, sigma=0.01, rec_hidden=200, stepsize=0.01,\
-                        num_label=10, c = 10)
+  hidden = 100
+  sigma = 0.001
+  kappa = 0.1
+  stepsize = 0.01
+
+  model = DeepLatentGM([784, hidden, hidden], batchsize=64, kappa=kappa, sigma=sigma, rec_hidden=hidden, stepsize=stepsize,\
+                        num_label=10)
   model.train(train_data, train_label, 500, test_data = test_data, test_label = test_label)
 
-run_full()
+# run_full()
+run_tiny()
 

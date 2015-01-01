@@ -32,7 +32,7 @@ toStr = np.vectorize(str)
 strConcat = lambda ls : '  '.join(toStr(ls))
 
 get_value = lambda x: x.get_value() if x != None else None
-get_value_all = lambda xs: [get_value(x) for x in xs]
+get_value_all = lambda xs: [get_value(x) for x in xs if x != None]
 
 def AdaGRAD(param, grad, G2, stepsize):
   """
@@ -102,19 +102,17 @@ class GenerativeModel:
     me.get_grad_reg = theano.function([], me.gradient_reg)
 
     "define utils."
-    me.generate = theano.function(me.xi[1:], me.h)
+    me.generate = theano.function(me.xi[1:], ts.logistic(me.h[0]))
     me.hidden_activation = ts.vector("hidden_activiation")
     me.hidden_rectified = me.f(0, me.hidden_activation)
     me.nonlinear = theano.function([me.hidden_activation], me.hidden_rectified)
 
   def sample(me, xi):
-    h = me.generate(*xi)
-    resp = np.logistic(h[0])
+    resp = me.generate(*xi)
     return toInt(npr.rand(*resp.shape) < resp)
 
   def activate(me, xi):
-    resp = me.generate(xi)
-    return np.logistic(resp)
+    return me.generate(*xi)
 
   def pack(me):
     return {'G': get_value_all(me.G), \
@@ -295,7 +293,7 @@ class DeepLatentGM(object):
     latent = np.array(latent)
     return latent
 
-  def process(me, V, Y = []):
+  def process(me, V, Y):
     """
       process one single data point.
         > return: (grad of generative model, grad of recognition model)
@@ -340,23 +338,22 @@ class DeepLatentGM(object):
       gg_xi = param_neg(gg_xi)
 
       "add supervision"
-      if Y != []:
-        code = rmodel.get_mu(V.T)
-        for vi in range(V.shape[0]):
-          latent = me.__concat__([c[vi] for c in code])
-          y = Y[vi]
-          
-          resp = me.ell + np.dot(latent, me.W) - np.dot(latent, me.W[:,y])
-          resp[y] = 0
-          yp = np.argmax(resp) 
-          grad_w[:,yp] += latent
-          grad_w[:,y] -= latent
+      code = rmodel.get_mu(V.T)
+      for vi in range(V.shape[0]):
+        latent = me.__concat__([c[:, vi] for c in code])
+        y = Y[vi]
+        
+        resp = me.ell + np.dot(latent, me.W) - np.dot(latent, me.W[:,y])
+        resp[y] = 0
+        yp = np.argmax(resp) 
+        grad_w[:,yp] += latent
+        grad_w[:,y] -= latent
 
-          # ind = 1   # skip bias.
-          # for ni in range(len(gg_xi)):
-          #   for nj in range(len(gg_xi[ni])):
-          #     gg_xi[ni][nj] += me.c * (me.W[ind, yp] - me.W[ind, y])
-          #     ind += 1
+        # ind = 1   # skip bias.
+        # for ni in range(len(gg_xi)):
+        #   for nj in range(len(gg_xi[ni])):
+        #     gg_xi[ni][nj] += me.c * (me.W[ind, yp] - me.W[ind, y])
+        #     ind += 1
 
       gr_stoc = rmodel.get_stoc_grad(V.T, *(gg_xi + eps))
       grad_r = param_add(grad_r, gr_stoc)
@@ -378,17 +375,15 @@ class DeepLatentGM(object):
   def test(me, data, label):
     predict = []
     acc = 0
-    for (v, lb) in zip(data, label):
-      # eps = me.rmodel.sample_eps(v)
-      # xi = me.rmodel.sample(v, eps)
-      xi = me.rmodel.get_mu(v)        # use posterior mean to make predictions.
-      latent = me.__concat__(xi)
+    xi = me.rmodel.get_mu(data.T)
+    for (li, lb) in enumerate(label):
+      latent = me.__concat__([x[:,li] for x in xi])
       resp = np.dot(latent, me.W)
       yp = np.argmax(resp)
       predict += [yp]
       if yp == lb:
         acc += 1
-    acc /= float(len(data))
+    acc /= float(len(label))
     return (predict, acc)
 
   def reconstruct(me, data):
@@ -433,16 +428,7 @@ class DeepLatentGM(object):
 
         "compute gradients"
 
-        result = map(me.process, V, Y)
-
-        grad_r = []
-        grad_g = []
-        grad_w = np.zeros_like(me.W)
-
-        for (ti, res) in enumerate(result):
-          grad_g = param_add(grad_g, res[0])
-          grad_r = param_add(grad_r, res[1])
-          grad_w += res[2]
+        (grad_g, grad_r, grad_w) = me.process(V, Y)
         
         grad_g = param_mul_scalar(grad_g, 1.0/len(V));
         grad_r = param_mul_scalar(grad_r, 1.0/len(V));
@@ -465,9 +451,8 @@ class DeepLatentGM(object):
 
         test_lhood += [me.neg_lhood(test_data)]
         lhood += [me.neg_lhood(data)]
-        print 'epoch = ', it, '-lhood', test_lhood[-1], '-lhood(train)', lhood[-1], 'test recon err', recon_err[-1], 'test acc', acc
 
-        recon_train = me.reconstruct(data)
+        (recon_train, xis_train) = me.reconstruct(data)
         train_recon_err += [np.abs(recon_train - data).sum() / float(data.shape[0]) / float(data.shape[1])]
 
         time_elapsed = (tb-ta) / float(LAG)
@@ -475,10 +460,12 @@ class DeepLatentGM(object):
         print 'epoch = ', it, 'time elapsed = ', time_elapsed, '-lhood', test_lhood[-1], '-lhood(train)', lhood[-1], 'test recon err', \
             recon_err[-1], 'train recon err', train_recon_err[-1], 'test acc', acc
 
-        sio.savemat('../result/%s/recon.mat' % me.output_path, {'recon': recon, 'xi': xis, 'xi_train':xi_train, 'data':test_data, 
+        result = {'recon': recon, 'xi': xis, 'xi_train':xis_train, 'data':test_data, 
                     'recon_train':recon_train, 'lhood':lhood, 'test_lhood':test_lhood, 'recon_err':recon_err, 
-                    'train_recon_err':train_recon_err, 'test_acc':accuracy, 'time_elapsed':time_elapsed,
-                    'rmodel':me.rmodel.pack(), 'gmodel':me.gmodel.pack()})
+                    'train_recon_err':train_recon_err, 'test_acc':accuracy, 'time_elapsed':time_elapsed}
+        result.update(me.rmodel.pack())
+        result.update(me.gmodel.pack())
+        sio.savemat('../result/%s/recon.mat' % me.output_path, result)
 
 
     with open('../result/%s/log.txt' % me.output_path, "a") as output:
